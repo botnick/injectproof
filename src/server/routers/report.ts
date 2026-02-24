@@ -422,7 +422,7 @@ function esc(s: string): string {
 export const reportRouter = router({
     generate: pentesterProcedure
         .input(z.object({
-            scanId: z.string().uuid(),
+            scanId: z.string(),
             format: z.enum(['json', 'md', 'html', 'pdf']).default('md'),
             title: z.string().optional(),
             type: z.enum(['executive', 'technical', 'compliance', 'full']).default('technical'),
@@ -477,7 +477,11 @@ export const reportRouter = router({
                 },
             });
 
-            return report;
+            return {
+                ...report,
+                scanIds: report.scanIds,
+                targetIds: report.targetIds,
+            };
         }),
 
     list: protectedProcedure

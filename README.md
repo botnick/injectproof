@@ -1,8 +1,8 @@
 # InjectProof
 
-> Automated SQL injection scanner that finds what others miss.
+> The SQL injection scanner that finds what sqlmap, Havij, and every other tool miss.
 
-**InjectProof** is a self-hosted web vulnerability scanner built for penetration testers who need more than basic SQLi detection. It crawls your target, discovers forms (including JavaScript-rendered ones), fingerprints the tech stack, finds exposed admin panels and backup files, then runs a full exploitation chain — from detection through database dumping — without touching sqlmap or any external tool.
+**InjectProof** is a self-hosted web vulnerability scanner built for penetration testers who refuse to settle for basic detection. It crawls your target with a stealth headless browser, discovers forms (including JavaScript-rendered ones), fingerprints the tech stack, finds exposed admin panels and backup files, then runs a **full adaptive exploitation chain** — from context-aware detection through database dumping — with a smart mutation engine that auto-bypasses WAFs. No sqlmap, no external tools, no manual configuration.
 
 Built on Next.js 15, runs in your browser, stores everything locally.
 
@@ -26,13 +26,19 @@ InjectProof sits in between. It uses a headless browser (Puppeteer with stealth 
 | Automatic CSRF token handling | ❌ | ❌ | ✅ |
 | JavaScript-rendered page crawling | ❌ | ❌ | ✅ |
 | Auth bypass + recursive post-auth scan | ❌ | ❌ | ✅ |
+| **SQL context detection (32 contexts)** | ❌ | Partial | ✅ |
+| **Stacked queries detection** | ❌ | ✅ | ✅ |
+| **Second-order SQLi** | ❌ | ❌ | ✅ |
+| **Cookie/Header injection (12+ headers)** | ❌ | Partial | ✅ |
+| **Smart payload mutation (30+ tampers)** | ❌ | ✅ | ✅ |
+| **PHP addslashes/GBK bypass** | ❌ | ✅ | ✅ |
 | Admin panel discovery (300+ paths) | ✅ | ❌ | ✅ |
-| Backup file scanner | ❌ | ❌ | ✅ |
 | Technology fingerprinting | ❌ | ❌ | ✅ |
-| WAF detection + adaptive evasion | Partial | ✅ | ✅ |
+| WAF detection + adaptive evasion (7+ WAFs) | Partial | ✅ | ✅ |
 | Multi-technique exploitation (UNION/Error/Blind/Time) | Partial | ✅ | ✅ |
 | Password hash extraction + cracking | ✅ | ✅ | ✅ |
 | File read / OS command execution | ✅ | ✅ | ✅ |
+| Out-of-Band DNS exfiltration payloads | ❌ | ✅ | ✅ |
 | Professional HTML reports | ❌ | ❌ | ✅ |
 | Modern web UI with real-time progress | ❌ | ❌ | ✅ |
 | Self-hosted, no cloud dependency | ✅ | ✅ | ✅ |
@@ -59,24 +65,28 @@ Add a target, start a scan, and watch InjectProof work through each phase in rea
 
 ## How It Works
 
-InjectProof runs scans in five phases:
+InjectProof runs scans in seven phases:
 
 **1. Crawling** — Discovers pages and endpoints using both static HTTP requests and a stealth headless browser. Captures forms, query parameters, AJAX endpoints, and JavaScript-rendered content.
 
-**2. Vulnerability Detection** — Runs 11 detector modules against every discovered endpoint. Each detector sends targeted payloads and analyzes responses for evidence of exploitable vulnerabilities.
+**2. Intelligent Analysis** — The scanner brain analyzes every page: classifies forms (15 types: login, search, upload, comment, etc.), scores each field's attack priority, discovers hidden AJAX endpoints from inline JavaScript, maps interactive elements (buttons, tabs, pagination, sort controls, modals), classifies page types, extracts HTML comments for info leaks, and generates a prioritized attack plan. Discovered AJAX endpoints are automatically merged into the scan queue.
 
-**3. Reconnaissance** — Probes for admin panels across 300+ common paths, scans for exposed backup files and database dumps, and fingerprints the target's technology stack (server, framework, CMS, CDN, WAF).
+**3. Vulnerability Detection** — Runs 11 detector modules against every discovered endpoint (including AJAX endpoints found by the intelligence phase). Each detector sends targeted payloads and analyzes responses for evidence of exploitable vulnerabilities.
 
-**4. Smart Form SQLi** — Opens a headless browser, navigates to pages with forms, fills them with SQLi payloads (handling CSRF tokens automatically), submits them, and analyzes responses. If a login form is vulnerable, it bypasses auth and scans post-login pages recursively.
+**4. Reconnaissance** — Probes for admin panels across 300+ common paths, scans for exposed backup files and database dumps, and fingerprints the target's technology stack (server, framework, CMS, CDN, WAF).
 
-**5. Deep Exploitation** — When SQLi is confirmed, the exploitation engine kicks in. It fingerprints the DBMS, detects the column count, finds injectable columns, and extracts:
+**5. Smart Form SQLi** — Opens a headless browser, navigates to pages with forms, fills them with SQLi payloads (handling CSRF tokens automatically), submits them, and analyzes responses. If a login form is vulnerable, it bypasses auth and scans post-login pages recursively.
+
+**6. Adaptive Context Detection** — The V2 engine analyzes how each parameter is embedded in SQL: detects 32 injection contexts, identifies the exact closing characters and comment style needed, fingerprints the DBMS, and detects PHP backends. It also probes 12+ HTTP headers and tests for stacked query support and second-order SQLi.
+
+**7. Deep Exploitation** — When SQLi is confirmed, the exploitation engine kicks in with context-aware payloads. It fingerprints the DBMS, detects the column count, finds injectable columns, and extracts:
 - Database names, table structures, column types
 - Full row data from every discovered table
 - User accounts and password hashes (with dictionary cracking)
 - Server files (`/etc/passwd`, config files)
 - OS command execution (when running as DBA)
 
-All extraction uses four techniques in priority order: UNION → Error-based → Boolean-blind → Time-blind. If a WAF is detected, payloads are automatically encoded with WAF-specific evasion strategies.
+All extraction uses four techniques in priority order: UNION → Error-based → Boolean-blind → Time-blind. If a WAF blocks a payload, the **smart mutation engine** auto-applies 30+ tamper functions (space→comment, hex encoding, case alternation, inline MySQL comments, keyword splitting, etc.) and chains them in 2-deep combinations until the WAF is bypassed. Supports WAF-specific bypasses for Cloudflare, ModSecurity, AWS WAF, Akamai, Imperva, Sucuri, and F5 BigIP.
 
 ---
 
@@ -111,18 +121,45 @@ All extraction uses four techniques in priority order: UNION → Error-based →
 | Backup File Scanner | Exposed `.sql`, `.zip`, `.bak`, `.env`, config files |
 | Technology Fingerprinter | Server, framework, CMS, CDN, WAF, JS libraries |
 
+### Intelligent Scanner Brain
+
+| Capability | Details |
+|-----------|---------|
+| Form Classification | 15 form types: login, registration, search, upload, comment, contact, profile-edit, password-change, password-reset, admin-action, filter, settings, payment, newsletter, delete-confirm |
+| Field Analysis | Per-field SQLi/XSS priority scoring (0-10). Detects: injectable params, credentials, tokens, identifiers, content fields, file inputs |
+| AJAX Discovery | Extracts hidden endpoints from inline JS: `fetch()`, `$.ajax()`, `axios`, `XMLHttpRequest`, `/api/*`, `.php` paths (10+ regex patterns) |
+| Interactive Element Mapping | Discovers buttons, tabs, pagination, sort controls, dropdowns, modal triggers, and `data-*` URL attributes |
+| Page Classification | 12 page types: login, dashboard, listing, detail, search-results, admin-panel, settings, profile, registration, error, api-docs, file-manager |
+| Attack Plan Generator | Auto-generates prioritized attack steps based on form types, field analysis, and page context |
+| HTML Comment Extraction | Finds developer comments that may leak paths, credentials, TODO items, or debug info |
+| Risk Scoring | Per-page risk score (0-100) based on form types, interactive elements, AJAX count, auth/admin status |
+
+### Adaptive SQLi Engine V2
+
+| Capability | Details |
+|-----------|---------|
+| Context Detection | 32 SQL contexts: WHERE (string/numeric/paren/double-quote/backtick), ORDER BY, INSERT, UPDATE, LIKE, IN, HAVING, GROUP BY, LIMIT, BETWEEN, CASE WHEN, CONCAT, subquery, JSON, REST path |
+| PHP-Specific | GBK/Big5 multibyte `addslashes()` bypass, numeric type juggling, PHP backend auto-detection (10 signatures) |
+| MSSQL-Specific | Bracket notation `[col]`, EXEC stored procedure injection, xp_cmdshell probes |
+| Stacked Queries | Auto-detects multi-statement support on MySQL, MSSQL, PostgreSQL, SQLite |
+| Second-Order SQLi | Injects in one endpoint, triggers in another — supports auth-bypass, error-trigger, time-trigger markers |
+| Header/Cookie Injection | Probes 12+ headers: Cookie, Referer, X-Forwarded-For, X-Client-IP, X-Real-IP, User-Agent, Accept-Language, X-Original-URL, X-Rewrite-URL, and more |
+| Smart Mutation Engine | 30+ tamper functions with auto-chaining (2-deep combos). Space→comment, hex encoding, case swap, keyword split, scientific notation, null-byte, unicode fullwidth |
+| WAF Bypass | Specific bypasses for Cloudflare, ModSecurity, AWS WAF, Akamai, Imperva, Sucuri, F5 BigIP + double URL encode + mixed encoding chains |
+| Response Diff Engine | Statistical response comparison: length, word count, status code, title hash, content hash — not just length diff |
+| Out-of-Band | DNS exfiltration payloads: MySQL `LOAD_FILE`, MSSQL `xp_dirtree`/`xp_subdirs`, PostgreSQL `COPY TO PROGRAM`, Oracle `UTL_HTTP` |
+
 ### Deep Exploitation
 
 | Capability | Details |
 |-----------|---------|
-| DBMS Fingerprinting | MySQL, PostgreSQL, MSSQL, Oracle, SQLite |
+| DBMS Fingerprinting | MySQL, PostgreSQL, MSSQL, Oracle, SQLite (22 MySQL + 18 MSSQL error patterns) |
 | Database Enumeration | Lists all databases, tables, columns with types |
 | Data Extraction | Dumps rows from any table using 4 extraction techniques |
 | User Enumeration | Extracts DB users, hostnames, privileges |
 | Hash Extraction | Pulls password hashes with built-in dictionary cracking |
 | File Read | Reads server files via LOAD_FILE / pg_read_file |
 | OS Commands | Executes commands via xp_cmdshell / UDF (DBA only) |
-| WAF Evasion | Adaptive encoding for Cloudflare, ModSecurity, AWS WAF, Akamai |
 
 ---
 
@@ -185,15 +222,17 @@ src/
 │   ├── api/trpc/           # API handler
 │   └── (platform)/         # Dashboard, targets, scans, vulns, reports, settings
 ├── scanner/                # Core engine
-│   ├── index.ts            # Scan orchestrator
+│   ├── index.ts            # Scan orchestrator (7-phase pipeline)
 │   ├── crawler.ts          # HTTP crawler
 │   ├── headless-browser.ts # Stealth Chromium manager
 │   ├── headless-crawler.ts # JS-aware SPA crawler
-│   ├── detectors.ts        # 7 standard vuln detectors
+│   ├── intelligent-scanner.ts # 🧠 Scanner brain (form classification, AJAX discovery, attack planning)
+│   ├── detectors.ts        # 11 standard vuln detectors + V2 integration
 │   ├── advanced-detectors.ts # 4 advanced detectors
 │   ├── recon-scanner.ts    # Admin finder + backup scanner + fingerprinting
 │   ├── smart-form-sqlmap.ts # Browser-based form SQLi engine
-│   ├── sqli-exploiter.ts   # Deep exploitation engine
+│   ├── sqli-adaptive.ts    # 🔥 V2 Adaptive engine (context detection, mutation, stacked queries, header injection)
+│   ├── sqli-exploiter.ts   # Deep exploitation engine (UNION/Error/Blind/Time)
 │   ├── post-exploit.ts     # Post-exploitation evidence gathering
 │   ├── easm.ts             # External attack surface management
 │   ├── cloud-exploit.ts    # Cloud infrastructure testing

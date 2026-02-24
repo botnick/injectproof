@@ -6,7 +6,7 @@ import { trpc } from '@/trpc/client';
 import Link from 'next/link';
 import {
     Bug, Search, ChevronDown, ChevronRight,
-    Globe, Shield, ExternalLink, Fingerprint,
+    Globe, Shield, ExternalLink, Fingerprint, Skull,
 } from 'lucide-react';
 import { getCweEntry, OWASP_TOP_10_2021, CATEGORY_DISPLAY_NAMES } from '@/lib/cwe-database';
 
@@ -41,6 +41,7 @@ interface GroupedItem {
     firstVulnId: string;
     nist: string[];
     targetNames: string[];
+    hasSqliExploit: boolean;
 }
 
 interface OwaspGroup {
@@ -88,11 +89,13 @@ function groupByOwasp(vulns: any[]): OwaspGroup[] {
                 firstVulnId: vuln.id,
                 nist: cweEntry?.nist || [],
                 targetNames: [],
+                hasSqliExploit: false,
             };
         }
 
         const item = owaspMap[owaspId].dedup[key];
         item.count++;
+        if (vuln.sqliExploitData) item.hasSqliExploit = true;
         if (vuln.affectedUrl && !item.urls.includes(vuln.affectedUrl)) {
             item.urls.push(vuln.affectedUrl);
         }
@@ -321,6 +324,12 @@ function VulnOwaspGroup({ group }: { group: OwaspGroup }) {
                                         {item.parameter && (
                                             <span className="text-[10px] font-mono text-cyan-400/60 bg-cyan-500/5 border border-cyan-500/10 rounded px-1.5 py-0.5 flex-shrink-0">
                                                 {item.parameter}
+                                            </span>
+                                        )}
+                                        {item.hasSqliExploit && (
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-400 bg-red-500/10 border border-red-500/20 rounded px-1.5 py-0.5 flex-shrink-0 animate-pulse">
+                                                <Skull className="w-3 h-3" />
+                                                SQLi Exploit
                                             </span>
                                         )}
                                     </div>

@@ -748,9 +748,6 @@ export const SECURITY_HEADERS_CHECKLIST: Array<{ header: string; description: st
     { header: 'X-XSS-Protection', description: 'Enables browser XSS filtering', critical: false },
     { header: 'Referrer-Policy', description: 'Controls referrer information sent with requests', critical: false },
     { header: 'Permissions-Policy', description: 'Controls browser feature access', critical: false },
-    { header: 'Cross-Origin-Embedder-Policy', description: 'Controls cross-origin resource embedding', critical: false },
-    { header: 'Cross-Origin-Opener-Policy', description: 'Controls cross-origin window interactions', critical: false },
-    { header: 'Cross-Origin-Resource-Policy', description: 'Controls cross-origin resource sharing', critical: false },
 ];
 
 /**

@@ -74,7 +74,7 @@ export const scanRouter = router({
             scanType: z.enum(['quick', 'standard', 'deep', 'custom']).default('standard'),
             modules: z.array(z.string()).optional(),
             authType: z.string().optional(),
-            authConfig: z.record(z.unknown()).optional(),
+            authConfig: z.record(z.string(), z.unknown()).optional(),
         }))
         .mutation(async ({ ctx, input }) => {
             // Get target

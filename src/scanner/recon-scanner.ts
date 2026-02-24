@@ -436,22 +436,29 @@ export async function runReconScan(config: ReconConfig): Promise<ReconResult> {
         if (!result.response) continue;
         const { status, body, headers } = result.response;
 
-        // Skip clear 404s and redirects to error pages
-        if (status === 404 || status === 410) continue;
-        if (status >= 500) continue;
+        // Skip clear 404s, 500s or WAF block pages
+        if (status === 404 || status === 410 || status >= 500) continue;
+        if (isSoft404OrWaf(status, body, headers)) continue;
 
         // Determine if this looks like an admin panel
-        const hasLoginForm = /<form[^>]*>[\s\S]*?(password|passwd|login|signin)/i.test(body);
+        const hasLoginForm = /<form[^>]*>[\s\S]*?(password|passwd|login|signin|username|user)/i.test(body);
         const hasLoginKeywords = /(admin|login|sign.?in|authenticate|dashboard|control.?panel)/i.test(body);
         const titleMatch = body.match(/<title>([^<]+)<\/title>/i);
         const title = titleMatch ? titleMatch[1].trim() : undefined;
 
+        // Strict verification to avoid false positives
         let confidence: AdminPanel['confidence'] = 'possible';
-        if (status === 200 && hasLoginForm) confidence = 'confirmed';
-        else if (status === 200 && hasLoginKeywords) confidence = 'likely';
-        else if (status === 401 || status === 403) confidence = 'likely';
-        else if (status === 200 && body.length > 500) confidence = 'possible';
-        else continue; // Skip empty/meaningless responses
+        if (status === 200 && hasLoginForm && hasLoginKeywords && !body.toLowerCase().includes('just a moment')) {
+            confidence = 'confirmed';
+        } else if (status === 200 && hasLoginForm) {
+            confidence = 'likely';
+        } else if (status === 401) {
+            confidence = 'likely';
+        } else if (status === 200 && hasLoginKeywords && title && /(admin|login)/i.test(title)) {
+            confidence = 'possible';
+        } else {
+            continue; // Skip ambiguous or empty pages
+        }
 
         const panel: AdminPanel = {
             url: result.url,
@@ -511,37 +518,56 @@ export async function runReconScan(config: ReconConfig): Promise<ReconResult> {
         if (!result.response) continue;
         const { status, body, headers } = result.response;
 
-        // Only interested in 200 OK with actual content
-        if (status !== 200) continue;
-        if (body.length < 50) continue; // skip tiny responses
+        // Only interested in 200 OK with actual content, and not a WAF block
+        if (status !== 200 || body.length < 20) continue;
+        if (isSoft404OrWaf(status, body, headers)) continue;
 
-        const contentType = headers['content-type'] || '';
+        const contentType = headers['content-type'] || 'text/plain';
         const contentLength = parseInt(headers['content-length'] || '0') || body.length;
+        const lowerBody = body.toLowerCase();
+        const ext = result.path.split('.').pop()?.toLowerCase();
 
-        // Filter: must look like a real backup file (not an HTML error page)
-        const isHtml = contentType.includes('text/html');
-        const isBackupContent = contentType.includes('application/') ||
-            contentType.includes('text/plain') ||
-            contentType.includes('application/sql') ||
-            contentType.includes('application/zip') ||
-            contentType.includes('application/gzip') ||
-            contentType.includes('application/x-tar') ||
-            contentType.includes('octet-stream');
-
-        // Skip HTML pages (likely custom 404s or generic pages)
-        if (isHtml && !result.path.endsWith('.env') && !result.path.endsWith('.env.bak')) continue;
-
-        // For .env files, check if content looks like env vars
-        if (result.path.includes('.env')) {
-            if (!/(DB_|DATABASE_|SECRET|PASSWORD|KEY|TOKEN|API)/i.test(body)) continue;
+        // 1. Skip obvious HTML pages that aren't backups
+        if (lowerBody.includes('<html') || lowerBody.includes('<!doctype html>')) {
+             if (ext !== 'bak' && ext !== 'old' && !result.path.includes('.env')) continue;
         }
 
-        // For SQL files, check for SQL-like content
-        if (result.path.endsWith('.sql')) {
-            if (!/(CREATE TABLE|INSERT INTO|DROP TABLE|ALTER TABLE|SELECT)/i.test(body)) continue;
+        // 2. Strict Content Verification (Regex & Signatures)
+        let isValidBackup = false;
+
+        // .env files
+        if (result.path.includes('.env') || ext === 'bak' || ext === 'old') {
+            const hasEnvVars = /^[A-Z0-9_]+\s*=\s*.+/m.test(body);
+            const hasSecrets = /(DB_|DATABASE_|SECRET|PASSWORD|KEY|TOKEN|API)/i.test(body);
+            if (hasEnvVars || hasSecrets) isValidBackup = true;
+        }
+        
+        // SQL dumps
+        else if (ext === 'sql' || result.path.includes('dump.sql')) {
+            const hasSql = /(CREATE\s+TABLE|INSERT\s+INTO|DROP\s+TABLE|ALTER\s+TABLE|--\s+MySQL|--\s+PostgreSQL)/i.test(body);
+            if (hasSql) isValidBackup = true;
+        }
+        
+        // Binary archives (zip, tar, gz, rar)
+        else if (ext && ['zip', 'gz', 'tar', 'rar', 'bz2', '7z'].includes(ext)) {
+            // Must not be a typical text error page
+            if (!lowerBody.includes('not found') && !lowerBody.includes('blocked')) {
+                if (contentType.includes('application/') || contentType.includes('octet-stream')) {
+                    isValidBackup = true;
+                }
+            }
+        }
+        
+        // Config files (php, json, yml, config)
+        else if (ext && ['php', 'json', 'yml', 'yaml', 'config', 'ini'].includes(ext)) {
+            if (ext === 'php' && /<\?php/i.test(body)) isValidBackup = true;
+            if (ext === 'json' && body.trim().startsWith('{')) isValidBackup = true;
+            if ((ext === 'yml' || ext === 'yaml') && body.includes(':')) isValidBackup = true;
+            if (ext === 'config' && /<configuration>/i.test(body)) isValidBackup = true;
+            if (ext === 'ini' && /^\[.*\]/m.test(body)) isValidBackup = true;
         }
 
-        if (isBackupContent || result.path.includes('.env') || result.path.endsWith('.sql')) {
+        if (isValidBackup) {
             const backup: BackupFile = {
                 url: result.url,
                 status,
@@ -718,4 +744,33 @@ function formatBytes(bytes: number): string {
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+}
+
+function isSoft404OrWaf(status: number, body: string, headers: Record<string, string>): boolean {
+    if (status === 403 || status === 406 || status === 429) return true;
+    
+    const bodyStr = body.toLowerCase();
+    
+    // Cloudflare / WAF block pages returning 200 or 400s
+    if (headers['server']?.toLowerCase().includes('cloudflare') || headers['cf-ray']) {
+        if (bodyStr.includes('just a moment...') || bodyStr.includes('cf-browser-verification') || bodyStr.includes('attention required!')) {
+            return true;
+        }
+        if (bodyStr.includes('cloudflare') && (bodyStr.includes('blocked') || bodyStr.includes('access denied') || bodyStr.includes('security check'))) {
+            return true;
+        }
+    }
+    
+    // Akamai
+    if (bodyStr.includes('access denied') && bodyStr.includes('reference #')) return true;
+    // CloudFront
+    if (bodyStr.includes('request blocked.') || bodyStr.includes('could not be satisfied.')) return true;
+    
+    // Soft 404s (returns 200 but is actually a 404 page)
+    if (status === 200) {
+        if (/<title>[^<]*(404|not found|page not found)[^<]*<\/title>/i.test(bodyStr)) return true;
+        if (/<h[1-3]>[^<]*(404|not found|page not found)[^<]*<\/h[1-3]>/i.test(bodyStr)) return true;
+    }
+    
+    return false;
 }

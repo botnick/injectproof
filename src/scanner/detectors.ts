@@ -14,6 +14,7 @@ import { buildRequestString, buildResponseString } from '@/lib/utils';
 import { COMMON_CVSS_VECTORS, calculateCvssScore, generateCvssVector } from '@/lib/cvss';
 import { getCweEntry } from '@/lib/cwe-database';
 import { deepExploitSqli } from '@/scanner/sqli-exploiter';
+import { scanHeaderInjection, detectStackedQueries, detectContext, smartMutate, type AdaptiveConfig } from '@/scanner/sqli-adaptive';
 
 interface DetectorConfig {
     baseUrl: string;
@@ -360,6 +361,110 @@ export async function detectSqli(
         }
     }
 
+    // ── ADVANCED V2: Cookie/Header Injection Scan ────────────────
+    try {
+        const headerResults = await scanHeaderInjection(endpoint.url, {
+            method: 'GET',
+            timeout: config.requestTimeout,
+            userAgent: config.userAgent,
+            customHeaders: config.customHeaders,
+            authHeaders: config.authHeaders,
+        });
+
+        for (const hdr of headerResults) {
+            if (hdr.vulnerable) {
+                const cwe = getCweEntry('CWE-89');
+                const cvssMetrics = COMMON_CVSS_VECTORS.sqli;
+                results.push({
+                    found: true,
+                    title: `SQL Injection via ${hdr.header} Header`,
+                    description: `The "${hdr.header}" HTTP header at ${endpoint.url} is vulnerable to SQL injection. This is a non-standard injection vector that many scanners miss, but attackers can exploit to bypass authentication or extract database contents.`,
+                    category: 'sqli',
+                    severity: 'critical',
+                    confidence: 'high',
+                    cweId: 'CWE-89',
+                    cweTitle: cwe?.title,
+                    cvssVector: generateCvssVector(cvssMetrics),
+                    cvssScore: calculateCvssScore(cvssMetrics),
+                    affectedUrl: endpoint.url,
+                    httpMethod: 'GET',
+                    parameter: hdr.header,
+                    parameterType: 'header',
+                    injectionPoint: 'header',
+                    payload: `Injected via ${hdr.header} header`,
+                    impact: `Header-based SQLi via ${hdr.header}. This vector bypasses most WAF rules that only inspect query/body parameters.`,
+                    technicalDetail: `Vector: ${hdr.vector}, Header: ${hdr.header}. Evidence: ${hdr.evidence}`,
+                    remediation: cwe?.remediation || 'Sanitize all user-controlled inputs including HTTP headers. Use parameterized queries for any header value used in SQL.',
+                    reproductionSteps: [
+                        `Send a GET request to: ${endpoint.url}`,
+                        `Set the "${hdr.header}" header to a SQL injection payload`,
+                        `Observe the ${hdr.evidence}`,
+                    ],
+                    references: ['https://owasp.org/www-community/attacks/SQL_Injection'],
+                    mappedOwasp: ['A03:2021'],
+                    mappedNist: ['SI-10'],
+                });
+            }
+        }
+    } catch {
+        // Header injection scan is best-effort
+    }
+
+    // ── ADVANCED V2: Stacked Queries Detection ──────────────────
+    if (params.length > 0) {
+        const firstParam = params[0];
+        try {
+            const stackedConfig: AdaptiveConfig = {
+                baseUrl: endpoint.url,
+                method: firstParam.type === 'query' ? 'GET' : 'POST',
+                paramName: firstParam.name,
+                vector: firstParam.type === 'query' ? 'query' : 'body',
+                timeout: config.requestTimeout,
+                userAgent: config.userAgent,
+                customHeaders: config.customHeaders,
+                authHeaders: config.authHeaders,
+                stackedQueriesEnabled: true,
+            };
+
+            const stackedResult = await detectStackedQueries(stackedConfig);
+            if (stackedResult.supported) {
+                const cwe = getCweEntry('CWE-89');
+                const cvssMetrics = COMMON_CVSS_VECTORS.sqli;
+                results.push({
+                    found: true,
+                    title: `Stacked SQL Queries Supported (${stackedResult.dbms}) via "${firstParam.name}"`,
+                    description: `The parameter "${firstParam.name}" at ${endpoint.url} supports stacked SQL queries (multiple statements separated by semicolons). This is extremely dangerous — an attacker can execute arbitrary SQL statements including INSERT, UPDATE, DELETE, DROP TABLE, and even OS commands.`,
+                    category: 'sqli',
+                    severity: 'critical',
+                    confidence: 'high',
+                    cweId: 'CWE-89',
+                    cweTitle: cwe?.title,
+                    cvssVector: generateCvssVector(cvssMetrics),
+                    cvssScore: calculateCvssScore(cvssMetrics),
+                    affectedUrl: endpoint.url,
+                    httpMethod: firstParam.type === 'query' ? 'GET' : 'POST',
+                    parameter: firstParam.name,
+                    parameterType: firstParam.type,
+                    injectionPoint: 'body',
+                    payload: stackedResult.payload,
+                    impact: 'Stacked queries allow execution of arbitrary SQL statements — complete database takeover, data destruction, and potential OS command execution.',
+                    technicalDetail: stackedResult.evidence,
+                    remediation: 'Use parameterized queries. Disable multi-statement execution in the database driver configuration.',
+                    reproductionSteps: [
+                        `Send a request to: ${endpoint.url}`,
+                        `Set parameter "${firstParam.name}" to: ${stackedResult.payload}`,
+                        `Observe the delayed response confirming stacked query execution`,
+                    ],
+                    references: ['https://owasp.org/www-community/attacks/SQL_Injection'],
+                    mappedOwasp: ['A03:2021'],
+                    mappedNist: ['SI-10'],
+                });
+            }
+        } catch {
+            // Stacked queries detection is best-effort
+        }
+    }
+
     return results;
 }
 
@@ -536,6 +641,10 @@ export async function detectCors(
 
         if (acao === origin || acao === '*') {
             const isWithCredentials = acac?.toLowerCase() === 'true';
+
+            // Wildcard (*) without credentials is normal for public APIs and static assets — skip
+            if (acao === '*' && !isWithCredentials) continue;
+
             const severity = isWithCredentials ? 'high' : 'medium';
 
             const cwe = getCweEntry('CWE-942');
@@ -544,8 +653,8 @@ export async function detectCors(
 
             results.push({
                 found: true,
-                title: `CORS Misconfiguration: ${acao === '*' ? 'Wildcard Origin' : 'Origin Reflection'}`,
-                description: `The application at ${endpoint.url} allows cross-origin requests from ${origin}${isWithCredentials ? ' with credentials' : ''}. ${acao === '*' ? 'A wildcard (*) Access-Control-Allow-Origin header allows any origin.' : 'The server reflects the Origin header without proper validation.'}`,
+                title: `CORS Misconfiguration: ${acao === '*' ? 'Wildcard Origin with Credentials' : 'Origin Reflection'}`,
+                description: `The application at ${endpoint.url} allows cross-origin requests from ${origin}${isWithCredentials ? ' with credentials' : ''}. ${acao === '*' ? 'A wildcard (*) Access-Control-Allow-Origin header with credentials allows any origin to access authenticated resources.' : 'The server reflects the Origin header without proper validation.'}`,
                 category: 'cors',
                 severity,
                 confidence: 'high',

@@ -22,6 +22,11 @@ prisma/*.db
 prisma/*.db-journal
 prisma/vibecode.db
 prisma/vibecode.db-journal
+*.db
+*.db-journal
+
+# ------------- Generated (Prisma v7) --------------
+src/generated/
 
 # --------------- Environment Files ----------------
 .env

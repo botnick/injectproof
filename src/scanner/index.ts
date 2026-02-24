@@ -9,6 +9,8 @@ import { isCdpAvailable } from '@/scanner/headless-browser';
 import { ALL_DETECTORS } from '@/scanner/detectors';
 import { runSmartFormSqliScan, type SmartFormScanConfig } from '@/scanner/smart-form-sqlmap';
 import { runReconScan, type ReconConfig } from '@/scanner/recon-scanner';
+import { analyzePageIntelligence, type PageIntelligence } from '@/scanner/intelligent-scanner';
+import * as cheerio from 'cheerio';
 import prisma from '@/lib/prisma';
 
 export type ProgressCallback = (progress: ScanProgress) => void;
@@ -154,7 +156,7 @@ export async function runScan(
         const crawlDone: ScanProgress = {
             scanId: config.scanId,
             phase: 'crawling',
-            progress: 20,
+            progress: 15,
             urlsDiscovered: crawlResult.discoveredUrls.length,
             urlsScanned: 0,
             vulnsFound: 0,
@@ -162,6 +164,132 @@ export async function runScan(
         };
         onProgress?.(crawlDone);
         await persistProgress(config.scanId, crawlDone);
+
+        // ========================================
+        // PHASE 1.5: INTELLIGENT PAGE ANALYSIS
+        // Classify forms, discover AJAX endpoints, map interactive elements,
+        // generate attack plans, and calculate risk scores
+        // ========================================
+        const intelligenceProgress: ScanProgress = {
+            scanId: config.scanId,
+            phase: 'crawling',
+            progress: 16,
+            urlsDiscovered: crawlResult.discoveredUrls.length,
+            urlsScanned: 0,
+            vulnsFound: 0,
+            message: '🧠 Intelligent Analysis — classifying forms, discovering AJAX endpoints, mapping attack surface...',
+            currentModule: 'Intelligent Scanner',
+        };
+        onProgress?.(intelligenceProgress);
+        await persistProgress(config.scanId, intelligenceProgress);
+
+        const pageIntelligence: PageIntelligence[] = [];
+        let totalFormsClassified = 0;
+        let totalAjaxDiscovered = 0;
+        let totalInteractiveElements = 0;
+
+        // Deduplicate endpoints for intelligence analysis
+        const seenUrlsIntel = new Set<string>();
+        const intelEndpoints = crawlResult.endpoints.filter(ep => {
+            const key = `${ep.method}:${ep.url}`;
+            if (seenUrlsIntel.has(key)) return false;
+            seenUrlsIntel.add(key);
+            return true;
+        });
+
+        for (const ep of intelEndpoints) {
+            try {
+                // Fetch page HTML for intelligent analysis
+                const res = await fetch(ep.url, {
+                    headers: {
+                        'User-Agent': config.userAgent || 'InjectProof-Scanner/1.0',
+                        ...config.customHeaders,
+                        ...buildAuthHeaders(config),
+                    },
+                    signal: AbortSignal.timeout(config.requestTimeout),
+                    redirect: 'follow',
+                });
+
+                const contentType = res.headers.get('content-type') || '';
+                if (!contentType.includes('text/html')) continue;
+
+                const html = await res.text();
+                const $ = cheerio.load(html);
+                const intel = analyzePageIntelligence(ep.url, html, $);
+
+                pageIntelligence.push(intel);
+                totalFormsClassified += intel.forms.length;
+                totalAjaxDiscovered += intel.ajaxEndpoints.length;
+                totalInteractiveElements += intel.interactiveElements.length;
+
+                // Merge discovered AJAX endpoints back into crawl results
+                for (const ajax of intel.ajaxEndpoints) {
+                    const exists = crawlResult.endpoints.some(e => e.url === ajax.url && e.method === ajax.method);
+                    if (!exists && ajax.confidence > 0.7) {
+                        crawlResult.endpoints.push({
+                            url: ajax.url,
+                            method: ajax.method,
+                            params: ajax.params.map(p => ({ name: p, type: 'query' as const, value: '' })),
+                            forms: [],
+                            headers: {},
+                            depth: ep.depth + 1,
+                            source: `intelligent-scanner:${ep.url}`,
+                        });
+                    }
+                }
+
+                // Log high-risk pages and attack plans
+                if (intel.riskScore >= 30) {
+                    await addScanLog(config.scanId, 'warn', 'intelligent-scanner',
+                        `⚡ High-risk page [${intel.riskScore}/100]: ${ep.url} | Type: ${intel.pageType} | Forms: ${intel.forms.map(f => `${f.classification}(${f.attackPriority})`).join(', ')}`);
+                }
+
+                if (intel.attackPlan.length > 0) {
+                    await addScanLog(config.scanId, 'info', 'intelligent-scanner',
+                        `📋 Attack plan for ${ep.url}: ${intel.attackPlan.slice(0, 3).map(s => `[P${s.priority}] ${s.technique} → ${s.params.join(',')}`).join(' | ')}`);
+                }
+
+                // Log form classifications
+                for (const form of intel.forms) {
+                    if (form.attackPriority === 'critical' || form.attackPriority === 'high') {
+                        await addScanLog(config.scanId, 'warn', 'intelligent-scanner',
+                            `🎯 ${form.classification.toUpperCase()} form at ${form.action} [${form.attackPriority}] — ${form.estimatedPurpose}`);
+                    }
+                }
+
+                // Log comments (potential info leaks)
+                if (intel.comments.length > 0) {
+                    await addScanLog(config.scanId, 'info', 'intelligent-scanner',
+                        `💬 HTML comments found on ${ep.url}: ${intel.comments.slice(0, 3).join(' | ')}`);
+                }
+            } catch {
+                // Best-effort analysis
+            }
+        }
+
+        await addScanLog(config.scanId, 'info', 'intelligent-scanner',
+            `🧠 Intelligence complete: ${totalFormsClassified} forms classified, ${totalAjaxDiscovered} AJAX endpoints discovered, ${totalInteractiveElements} interactive elements mapped`);
+
+        // Re-deduplicate after AJAX endpoint injection
+        const seenUrlsV2 = new Set<string>();
+        const uniqueEndpointsV2 = crawlResult.endpoints.filter(ep => {
+            const key = `${ep.method}:${ep.url}`;
+            if (seenUrlsV2.has(key)) return false;
+            seenUrlsV2.add(key);
+            return true;
+        });
+
+        const intelProgress: ScanProgress = {
+            scanId: config.scanId,
+            phase: 'crawling',
+            progress: 20,
+            urlsDiscovered: crawlResult.discoveredUrls.length + totalAjaxDiscovered,
+            urlsScanned: 0,
+            vulnsFound: 0,
+            message: `Intelligence done: ${uniqueEndpointsV2.length} total endpoints (${totalAjaxDiscovered} from AJAX), ${totalFormsClassified} forms classified`,
+        };
+        onProgress?.(intelProgress);
+        await persistProgress(config.scanId, intelProgress);
 
         // ========================================
         // PHASE 2: VULNERABILITY SCANNING
@@ -202,17 +330,15 @@ export async function runScan(
         const totalEndpoints = crawlResult.endpoints.length;
         let payloadCount = 0;
 
-        // Run detectors on each endpoint
-        // Only scan unique endpoints (first occurrence)
-        const seenUrls = new Set<string>();
-        const uniqueEndpoints = crawlResult.endpoints.filter(ep => {
+        // Run detectors on each endpoint (using expanded list after intelligence phase)
+        const seenUrlsFinal = new Set<string>();
+        const finalEndpoints = crawlResult.endpoints.filter(ep => {
             const key = `${ep.method}:${ep.url}`;
-            if (seenUrls.has(key)) return false;
-            seenUrls.add(key);
+            if (seenUrlsFinal.has(key)) return false;
+            seenUrlsFinal.add(key);
             return true;
         });
-
-        for (const endpoint of uniqueEndpoints) {
+        for (const endpoint of finalEndpoints) {
             // Check if scan was cancelled
             const scanRecord = await prisma.scan.findUnique({ where: { id: config.scanId } });
             if (scanRecord?.status === 'cancelled') {
@@ -357,7 +483,7 @@ export async function runScan(
 
             // Scan each unique URL for forms
             const smartUrls = new Set<string>();
-            for (const ep of uniqueEndpoints) {
+            for (const ep of finalEndpoints) {
                 if (ep.forms.length > 0 || ep.url === config.baseUrl) {
                     smartUrls.add(ep.url);
                 }

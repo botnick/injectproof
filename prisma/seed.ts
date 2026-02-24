@@ -1,10 +1,15 @@
 // InjectProof — Database Seed Script
 // Creates default admin user and sample data
 
-import { PrismaClient } from '@prisma/client';
+import 'dotenv/config';
+import { PrismaClient } from '../src/generated/prisma/client.js';
+import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
 import bcrypt from 'bcryptjs';
 
-const prisma = new PrismaClient();
+const adapter = new PrismaBetterSqlite3({
+    url: process.env.DATABASE_URL || 'file:./injectproof.db',
+});
+const prisma = new PrismaClient({ adapter });
 
 async function main() {
     console.log('🌱 Seeding InjectProof database...');

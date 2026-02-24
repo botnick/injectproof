@@ -7,7 +7,7 @@ import Link from 'next/link';
 import {
     Shield, LayoutDashboard, Target, Radar, Bug, FileText,
     Settings, LogOut, ChevronLeft, ChevronRight, Bell,
-    Activity, Skull, Sparkles, Cpu, Zap,
+    Activity, Skull, Sparkles, Zap,
 } from 'lucide-react';
 
 const navItems = [
@@ -75,7 +75,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
                                 InjectProof
                             </h1>
                             <p className="text-[10px] text-gray-400 font-medium leading-tight flex items-center gap-1 mt-0.5">
-                                <Sparkles className="w-2.5 h-2.5 text-brand-400" /> SQLi Verification Engine
+                                <Sparkles className="w-2.5 h-2.5 text-brand-400" /> Security Scanner
                             </p>
                         </div>
                     )}
@@ -98,25 +98,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
                     })}
                 </nav>
 
-                {/* AI Status */}
-                {!collapsed && (
-                    <div className="mx-3 mb-2 p-3 rounded-xl"
-                        style={{
-                            background: 'rgba(99,102,241,0.04)',
-                            border: '1px solid rgba(129,140,248,0.08)',
-                            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)',
-                        }}
-                    >
-                        <div className="flex items-center gap-2 mb-1">
-                            <Cpu className="w-3.5 h-3.5 text-brand-400" />
-                            <span className="text-xs font-medium text-gray-300">AI Engine</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <div className="status-live" />
-                            <span className="text-[11px] text-gray-500">Ready · Cognitive v2.0</span>
-                        </div>
-                    </div>
-                )}
+
 
                 {/* Collapse Toggle */}
                 <button

@@ -4,7 +4,7 @@
 import { trpc } from '@/trpc/client';
 import {
     Target, Radar, Bug, AlertTriangle, CheckCircle,
-    Activity, TrendingUp, Sparkles, Brain, Cpu,
+    Activity, TrendingUp, Sparkles,
 } from 'lucide-react';
 import {
     PieChart, Pie, Cell, Tooltip, ResponsiveContainer, AreaChart, Area,
@@ -29,8 +29,8 @@ export default function DashboardPage() {
         return (
             <div className="flex items-center justify-center h-64">
                 <div className="flex flex-col items-center gap-3">
-                    <div className="w-10 h-10 rounded-2xl flex items-center justify-center bg-brand-500/10 border border-brand-500/20 neural-pulse">
-                        <Cpu className="w-5 h-5 text-brand-400 animate-pulse" />
+                    <div className="w-10 h-10 rounded-2xl flex items-center justify-center bg-brand-500/10 border border-brand-500/20">
+                        <Activity className="w-5 h-5 text-brand-400 animate-pulse" />
                     </div>
                     <span className="text-xs text-gray-500">Loading dashboard...</span>
                 </div>
@@ -59,11 +59,11 @@ export default function DashboardPage() {
                         </div>
                         Dashboard
                     </h1>
-                    <p className="page-subtitle mt-1">Global security overview and AI-powered insights</p>
+                    <p className="page-subtitle mt-1">Global security overview and scan insights</p>
                 </div>
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-brand-500/5 border border-brand-500/10 text-[11px] text-gray-500">
                     <Sparkles className="w-3.5 h-3.5 text-brand-400" />
-                    <span>AI Analysis Active</span>
+                    <span>Scanner Ready</span>
                 </div>
             </div>
 
@@ -97,7 +97,7 @@ export default function DashboardPage() {
                         </ResponsiveContainer>
                     ) : (
                         <div className="flex flex-col items-center justify-center h-[220px] text-gray-700 text-sm gap-2">
-                            <Brain className="w-8 h-8 text-gray-800" />
+                            <Radar className="w-8 h-8 text-gray-800" />
                             <span>No data yet</span>
                         </div>
                     )}
