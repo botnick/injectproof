@@ -1,0 +1,391 @@
+// VibeCode — Prisma Schema (SQLite)
+// Enterprise-grade pentest platform data model
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// USER & AUTH
+// ============================================================
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  passwordHash  String
+  name          String
+  role          String   @default("viewer") // admin, security_lead, pentester, developer, viewer
+  avatar        String?
+  mfaEnabled    Boolean  @default(false)
+  mfaSecret     String?
+  isActive      Boolean  @default(true)
+  lastLoginAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  targets       Target[]
+  scans         Scan[]
+  auditLogs     AuditLog[]
+  reports       Report[]
+  notifications NotificationConfig[]
+
+  @@index([email])
+  @@index([role])
+}
+
+// ============================================================
+// TARGET (Assets to scan)
+// ============================================================
+
+model Target {
+  id                String   @id @default(uuid())
+  name              String
+  baseUrl           String
+  description       String?
+  environment       String   @default("production") // production, staging, development, internal
+  criticality       String   @default("medium") // critical, high, medium, low
+  tags              String?  // JSON array as string
+  authType          String?  // none, token, cookie, session, scripted
+  authConfig        String?  // JSON config for auth (token value, cookie, login script)
+  headers           String?  // JSON custom headers
+  excludePaths      String?  // JSON array of paths to exclude
+  includePaths      String?  // JSON array of paths to include only
+  maxCrawlDepth     Int      @default(10)
+  maxUrls           Int      @default(500)
+  requestTimeout    Int      @default(30000) // ms
+  rateLimit         Int      @default(10)    // requests per second
+  isActive          Boolean  @default(true)
+  lastScanAt        DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  createdById       String
+  createdBy         User     @relation(fields: [createdById], references: [id])
+
+  scans             Scan[]
+  scheduledScans    ScheduledScan[]
+  vulnerabilities   Vulnerability[]
+
+  @@index([baseUrl])
+  @@index([environment])
+  @@index([criticality])
+  @@index([createdById])
+}
+
+// ============================================================
+// SCAN (Individual scan jobs)
+// ============================================================
+
+model Scan {
+  id              String   @id @default(uuid())
+  targetId        String
+  target          Target   @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  startedById     String
+  startedBy       User     @relation(fields: [startedById], references: [id])
+
+  status          String   @default("queued") // queued, running, completed, failed, cancelled, paused
+  scanType        String   @default("standard") // quick, standard, deep, custom
+  scanProfile     String?  // JSON scan configuration profile
+
+  // Scan scope
+  scanModules     String?  // JSON array: ["xss","sqli","ssrf","headers",...]
+  targetUrls      String?  // JSON array of specific URLs to scan (optional)
+
+  // Auth for this scan
+  authType        String?  // override target auth
+  authConfig      String?
+
+  // Results summary
+  totalUrls       Int      @default(0)
+  totalParams     Int      @default(0)
+  totalPayloads   Int      @default(0)
+  criticalCount   Int      @default(0)
+  highCount       Int      @default(0)
+  mediumCount     Int      @default(0)
+  lowCount        Int      @default(0)
+  infoCount       Int      @default(0)
+
+  // Timing
+  startedAt       DateTime?
+  completedAt     DateTime?
+  duration        Int?     // seconds
+  progress        Int      @default(0) // 0-100
+
+  // Live progress status (updated in real-time during scan)
+  currentPhase    String?  // crawling, scanning, analyzing, evidence, completed, failed
+  currentModule   String?  // XSS Detector, SQLi Detector, etc.
+  currentUrl      String?  // URL currently being tested
+  statusMessage   String?  // Detailed human-readable status message
+
+  // Error handling
+  errorMessage    String?
+  retryCount      Int      @default(0)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  vulnerabilities Vulnerability[]
+  scanLogs        ScanLog[]
+
+  @@index([targetId])
+  @@index([status])
+  @@index([startedById])
+  @@index([createdAt])
+}
+
+// ============================================================
+// SCAN LOG (Execution trace per scan)
+// ============================================================
+
+model ScanLog {
+  id        String   @id @default(uuid())
+  scanId    String
+  scan      Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
+
+  level     String   @default("info") // debug, info, warn, error
+  module    String   // crawler, xss, sqli, ssrf, etc.
+  message   String
+  details   String?  // JSON additional data
+  timestamp DateTime @default(now())
+
+  @@index([scanId])
+  @@index([level])
+  @@index([module])
+  @@index([timestamp])
+}
+
+// ============================================================
+// VULNERABILITY (Core finding model)
+// ============================================================
+
+model Vulnerability {
+  id                String   @id @default(uuid())
+  targetId          String
+  target            Target   @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  scanId            String
+  scan              Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
+
+  // Classification
+  title             String
+  description       String
+  category          String   // xss, sqli, ssrf, path_traversal, open_redirect, headers, info_disclosure, auth, cors, cve, jwt, idor, cmd_injection, nosql_injection, deserialization, rce, csrf, clickjacking, xxe, ssti
+  severity          String   // critical, high, medium, low, info
+  confidence        String   @default("high") // high, medium, low
+
+  // Scores & Standards
+  cvssScore         Float?
+  cvssVector        String?  // CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H
+  cvssVersion       String?  @default("3.1") // 3.1 or 4.0
+  cweId             String?  // CWE-79
+  cweTitle          String?  // Cross-site Scripting
+  mappedCveIds      String?  // JSON array: ["CVE-2024-1234"]
+  mappedOwasp       String?  // JSON array: ["A03:2021"]
+  mappedOwaspAsvs   String?  // JSON array: ["V5.3.3"]
+  mappedNist        String?  // JSON array: ["SI-10"]
+
+  // Affected Location
+  affectedUrl       String
+  httpMethod        String   @default("GET")
+  parameter         String?
+  parameterType     String?  // query, body, header, cookie, path
+  injectionPoint    String?  // reflected, stored, dom, header, body
+
+  // Evidence (inline)
+  payload           String?
+  requestArtifact   String?  // Full HTTP request
+  responseArtifact  String?  // Full HTTP response or excerpt
+  responseCode      Int?
+  responseTime      Int?     // ms
+  timingEvidence    String?  // JSON timing data for time-based detection
+  domSnapshot       String?  // HTML snapshot
+  screenshotPath    String?  // Path to screenshot file
+
+  // Analysis
+  impact            String?  // Business impact description
+  technicalDetail   String?  // Deep technical analysis
+  remediation       String?  // Fix recommendation
+  reproductionSteps String?  // JSON array of steps
+  references        String?  // JSON array of reference URLs
+
+  // Status management
+  status            String   @default("open") // open, confirmed, fixed, false_positive, accepted, reopened
+  assignedTo        String?
+  fixedAt           DateTime?
+  verifiedAt        DateTime?
+  notes             String?  // Internal notes
+
+  // Worker metadata
+  detectorModule    String?  // Which detector found this
+  executionLog      String?  // Raw execution trace
+  workerRunLog      String?  // Worker-level log
+
+  // Red-Team Operations (Elite)
+  attackChainGraph        String?  // JSON DAG: how Bug A -> Bug B -> Critical Impact
+  raceConditionConfirmed  Boolean @default(false) // Triggered via HTTP/2 Single-Packet Attack?
+  cloudMetadataExtracted  Boolean @default(false) // SSRF extracted IAM/Cloud credentials?
+  cachePoisoningImpact    String?  // Cache poisoning success + TTL details
+  chainedFrom             String?  // ID of the vulnerability this was chained from
+  chainedTo               String?  // ID of the vulnerability this chains into
+  attackComplexity         String?  // none, low, medium, high — real exploit difficulty
+  exploitMaturity          String?  // poc, functional, weaponized
+
+  // EASM & Reconnaissance
+  assetDiscoveryPath       String?  // How was this target found? e.g. Cert Transparency -> AltDNS
+  sourceMapReconstructed   Boolean @default(false) // Found via exposed Webpack .js.map
+
+  // Post-Exploitation Evidence
+  internalNetworkExposure  Boolean @default(false) // External vuln pivoted into internal network?
+  extractedCloudSecrets    String?  // JSON: sanitized logs of extracted AWS/GCP/K8s secrets
+  postExploitationEvidence String?  // JSON/Text: output of whoami, id, env confirming takeover
+
+  // Deep SQLi Exploitation (Havij-style evidence)
+  sqliExploitData          String?  // JSON: full SqliExploitResult (databases, tables, columns, rows, exploit log)
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  evidence          Evidence[]
+
+  @@index([targetId])
+  @@index([scanId])
+  @@index([category])
+  @@index([severity])
+  @@index([status])
+  @@index([cweId])
+  @@index([affectedUrl])
+  @@index([createdAt])
+}
+
+// ============================================================
+// EVIDENCE (Additional artifacts per vulnerability)
+// ============================================================
+
+model Evidence {
+  id              String   @id @default(uuid())
+  vulnerabilityId String
+  vulnerability   Vulnerability @relation(fields: [vulnerabilityId], references: [id], onDelete: Cascade)
+
+  type            String   // request, response, screenshot, dom_snapshot, timing_log, execution_trace, replay_script, raw_trace
+  title           String
+  content         String?  // Text content or JSON
+  filePath        String?  // File path for binary artifacts
+  mimeType        String?  // MIME type
+  size            Int?     // bytes
+  order           Int      @default(0) // Display order
+
+  createdAt       DateTime @default(now())
+
+  @@index([vulnerabilityId])
+  @@index([type])
+}
+
+// ============================================================
+// SCHEDULED SCAN
+// ============================================================
+
+model ScheduledScan {
+  id            String   @id @default(uuid())
+  targetId      String
+  target        Target   @relation(fields: [targetId], references: [id], onDelete: Cascade)
+
+  name          String
+  description   String?
+  cronExpression String  // e.g., "0 2 * * 1" (every Monday 2am)
+  scanType      String   @default("standard")
+  scanModules   String?  // JSON array
+
+  isActive      Boolean  @default(true)
+  lastRunAt     DateTime?
+  nextRunAt     DateTime?
+  runCount      Int      @default(0)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([targetId])
+  @@index([isActive])
+  @@index([nextRunAt])
+}
+
+// ============================================================
+// AUDIT LOG
+// ============================================================
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+
+  action    String   // login, logout, create_target, start_scan, update_vuln, generate_report, etc.
+  resource  String   // user, target, scan, vulnerability, report, settings
+  resourceId String?
+  details   String?  // JSON additional context
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([resource])
+  @@index([createdAt])
+}
+
+// ============================================================
+// REPORT
+// ============================================================
+
+model Report {
+  id          String   @id @default(uuid())
+  title       String
+  type        String   @default("technical") // executive, technical, compliance, full
+  format      String   @default("pdf") // pdf, html, markdown, json
+  status      String   @default("generating") // generating, completed, failed
+
+  // Filters applied
+  targetIds   String?  // JSON array
+  scanIds     String?  // JSON array
+  severities  String?  // JSON array
+  categories  String?  // JSON array
+  dateFrom    DateTime?
+  dateTo      DateTime?
+
+  // Output
+  filePath    String?
+  fileSize    Int?
+
+  // Metadata
+  generatedById String
+  generatedBy   User   @relation(fields: [generatedById], references: [id])
+  createdAt     DateTime @default(now())
+
+  @@index([generatedById])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ============================================================
+// NOTIFICATION CONFIG
+// ============================================================
+
+model NotificationConfig {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  channel   String   // email, slack, discord, teams, webhook
+  config    String   // JSON: { webhook_url, channel, email, etc. }
+  events    String   // JSON array: ["critical_vuln", "scan_completed", "sla_overdue"]
+  isActive  Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([channel])
+}

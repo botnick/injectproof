@@ -1,0 +1,90 @@
+# ============================================================
+# VibeCode — .gitignore
+# Enterprise Web Application Penetration Testing Platform
+# ============================================================
+
+# ------------------ Dependencies ------------------
+node_modules/
+.pnp
+.pnp.js
+.pnp.cjs
+
+# -------------------- Builds ----------------------
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# ------------------- Database ---------------------
+prisma/*.db
+prisma/*.db-journal
+prisma/vibecode.db
+prisma/vibecode.db-journal
+
+# --------------- Environment Files ----------------
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env*.local
+
+# ------------- Evidence & Scan Data ---------------
+evidence/
+reports/
+screenshots/
+*.pcap
+
+# ---------- Payload Repositories (cloned) ---------
+.payload_repos/
+
+# ------------------- Testing ----------------------
+coverage/
+.nyc_output/
+
+# -------------------- Logs ------------------------
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# -------------------- IDE -------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# ------------------- OS Files --------------------
+.DS_Store
+.DS_Store?
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ------------------- Misc ------------------------
+*.pid
+*.seed
+*.pid.lock
+.cache/
+.temp/
+.tmp/
+
+# ------------- Puppeteer / Chromium ---------------
+.local-chromium/
+chrome-data/
+
+# ------------- Vercel Deployment ------------------
+.vercel/
+
+# ------------- Debug / Profiling ------------------
+*.cpuprofile
+*.heapprofile
+*.heapsnapshot

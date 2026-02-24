@@ -1,0 +1,321 @@
+/* ================================================================
+   InjectProof — Ultra-Clean Modern SaaS UI 
+   Reduced Lag, High Contrast, Distinct Elements
+   ================================================================ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
+
+/* ================================================================
+   BASE LAYER — Vercel/Linear Inspired Dark Mode
+   ================================================================ */
+@layer base {
+  :root {
+    --bg-void: #0a0a0a;             /* Pure dark background */
+    --bg-card: #111111;             /* Distinct card background */
+    --bg-glass: rgba(17, 17, 17, 0.7); /* Subtle glass for overlays */
+    --border-subtle: rgba(255, 255, 255, 0.08); /* Clean, visible borders */
+    --border-hover: rgba(255, 255, 255, 0.16);
+    --border-accent: rgba(99, 102, 241, 0.4);
+    
+    --text-primary: #ededed;
+    --text-secondary: #a1a1aa;
+    --text-muted: #71717a;
+    
+    --accent: #6366f1;
+    --accent-glow: rgba(99, 102, 241, 0.2);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background: var(--bg-void);
+    color: var(--text-primary);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Outfit', 'Inter', sans-serif;
+    letter-spacing: -0.02em;
+  }
+
+  /* Minimal scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 99px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+
+  ::selection { background: var(--accent-glow); color: #fff; }
+}
+
+/* ================================================================
+   COMPONENTS
+   ================================================================ */
+@layer components {
+
+  /* ── GLASS CARD — Clean, Distinct, No Lag ──────────────── */
+  .glass-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+  .glass-card:hover {
+    border-color: var(--border-hover);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+    transform: translateY(-2px);
+  }
+
+  /* ── STAT CARD ─────────────────────────────────────────── */
+  .stat-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+    transition: transform 0.2s ease, border-color 0.2s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .stat-card::before {
+    content: ''; position: absolute;
+    top: 0; left: 0; width: 100%; height: 2px;
+    background: transparent;
+    transition: background 0.3s ease;
+  }
+  .stat-card:hover {
+    border-color: var(--border-hover);
+    transform: translateY(-2px);
+  }
+  .stat-card:hover::before {
+    background: linear-gradient(90deg, #6366f1, #a855f7);
+  }
+
+  /* ── BUTTONS ───────────────────────────────────────────── */
+  .btn-primary {
+    display: inline-flex; align-items: center; justify-content: center;
+    color: #fff; padding: 10px 20px; border-radius: 8px;
+    font-weight: 500; font-size: 14px;
+    background: #ffffff; color: #000000;
+    border: 1px solid transparent;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 8px rgba(255,255,255,0.1);
+  }
+  .btn-primary:hover {
+    background: #e5e5e5;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(255,255,255,0.15);
+  }
+  .btn-primary:active { transform: translateY(0); }
+
+  .btn-secondary {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 10px 20px; border-radius: 8px;
+    font-weight: 500; font-size: 14px;
+    color: #ededed;
+    background: rgba(255, 255, 255, 0.05); /* Clean dark standard button */
+    border: 1px solid var(--border-subtle);
+    transition: all 0.2s ease;
+  }
+  .btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: var(--border-hover);
+  }
+
+  .btn-danger {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 10px 20px; border-radius: 8px;
+    font-weight: 500; font-size: 14px;
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    transition: all 0.2s ease;
+  }
+  .btn-danger:hover {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.3);
+  }
+
+  /* ── INPUT FIELDS & NATIVE SELECT ──────────────────────── */
+  .input-field {
+    width: 100%; border-radius: 8px;
+    padding: 10px 14px; font-size: 14px;
+    color: #ededed;
+    background: #000000; /* Distinct dark bg for inputs */
+    border: 1px solid var(--border-subtle);
+    transition: all 0.2s ease;
+  }
+  .input-field::placeholder { color: #71717a; }
+  .input-field:focus, .input-field:hover {
+    outline: none;
+    border-color: var(--border-hover);
+  }
+  .input-field:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+
+  /* Critical fix for native <select> options background */
+  select.input-field {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23a1a1aa'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    background-size: 16px;
+    padding-right: 40px;
+    cursor: pointer;
+  }
+  select.input-field option {
+    background-color: #111111; /* Pitch dark bg for dropdown list */
+    color: #ededed;
+    font-size: 14px;
+    padding: 10px;
+  }
+
+  .input-label {
+    display: block; font-size: 13px;
+    font-weight: 500; color: #a1a1aa;
+    margin-bottom: 8px;
+  }
+
+  /* ── DATA TABLE ────────────────────────────────────────── */
+  .data-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+  .data-table th {
+    text-align: left; font-size: 11px; font-weight: 600;
+    color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.05em;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .data-table td {
+    padding: 14px 16px; font-size: 13px; color: #d4d4d8;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .data-table tbody tr { transition: background 0.15s ease; }
+  .data-table tbody tr:hover td { background: rgba(255,255,255,0.03); }
+
+  /* ── SIDEBAR LINK ──────────────────────────────────────── */
+  .sidebar-link {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 12px; border-radius: 8px;
+    color: #a1a1aa; font-size: 14px; font-weight: 500;
+    transition: all 0.2s ease;
+  }
+  .sidebar-link:hover { color: #ededed; background: rgba(255, 255, 255, 0.06); }
+  .sidebar-link.active {
+    color: #ededed;
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  /* ── PAGE HEADERS ──────────────────────────────────────── */
+  .page-header { margin-bottom: 32px; }
+  .page-title {
+    font-size: 24px; font-weight: 600; color: #ededed;
+    letter-spacing: -0.01em;
+  }
+  .page-subtitle { color: #a1a1aa; margin-top: 6px; font-size: 14px; }
+
+  /* ── TABS ──────────────────────────────────────────────── */
+  .tab-list {
+    display: inline-flex; gap: 2px; padding: 4px; border-radius: 10px;
+    background: #111111; border: 1px solid var(--border-subtle);
+  }
+  .tab-item {
+    padding: 6px 14px; border-radius: 6px;
+    font-size: 13px; font-weight: 500;
+    color: #a1a1aa; cursor: pointer; transition: all 0.2s ease;
+  }
+  .tab-item:hover { color: #ededed; }
+  .tab-item.active {
+    color: #ededed; background: rgba(255, 255, 255, 0.1);
+  }
+
+  /* ── VULN GROUP ────────────────────────────────────────── */
+  .vuln-group {
+    border-radius: 12px; overflow: hidden;
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    transition: border-color 0.2s ease;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  }
+  .vuln-group:hover { border-color: var(--border-hover); }
+  .vuln-group-header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 16px 20px; cursor: pointer; user-select: none;
+    transition: background 0.2s;
+  }
+  .vuln-group-header:hover { background: rgba(255, 255, 255, 0.02); }
+  .vuln-group-body { border-top: 1px solid var(--border-subtle); }
+
+  /* ── CODE BLOCK ────────────────────────────────────────── */
+  .code-block {
+    border-radius: 8px; padding: 16px;
+    font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #a1a1aa;
+    overflow-x: auto; background: #000; border: 1px solid var(--border-subtle);
+  }
+
+  /* ── SEVERITY BADGES (Clean, solid borders) ────────────── */
+  .badge-critical { padding: 2px 10px; border-radius: 9999px; font-size: 11px; font-weight: 600; background-color: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); }
+  .badge-high     { padding: 2px 10px; border-radius: 9999px; font-size: 11px; font-weight: 600; background-color: rgba(249, 115, 22, 0.1); color: #f97316; border: 1px solid rgba(249, 115, 22, 0.2); }
+  .badge-medium   { padding: 2px 10px; border-radius: 9999px; font-size: 11px; font-weight: 600; background-color: rgba(234, 179, 8, 0.1); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.2); }
+  .badge-low      { padding: 2px 10px; border-radius: 9999px; font-size: 11px; font-weight: 600; background-color: rgba(59, 130, 246, 0.1); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.2); }
+  .badge-info     { padding: 2px 10px; border-radius: 9999px; font-size: 11px; font-weight: 600; background-color: rgba(107, 114, 128, 0.1); color: #9ca3af; border: 1px solid rgba(107, 114, 128, 0.2); }
+
+  /* ── MODAL ──────────────────────────────────────────────── */
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, 0.8); backdrop-filter: blur(4px);
+    animation: modalFadeIn 0.2s ease-out;
+  }
+  .modal-content {
+    border-radius: 16px; max-width: 480px; width: 100%; margin: 0 16px; padding: 24px;
+    background: #111111; border: 1px solid var(--border-hover);
+    box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+    animation: modalSlideUp 0.2s ease-out;
+  }
+  @keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes modalSlideUp { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
+  /* ── BACKGROUNDS (Optimized for 0 lag) ────────────────── */
+  .aurora-bg {
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    /* Static, beautiful gradient instead of heavy animations */
+    background: radial-gradient(circle at 50% -20%, rgba(99, 102, 241, 0.08), transparent 60%),
+                radial-gradient(circle at 100% 50%, rgba(168, 85, 247, 0.04), transparent 50%),
+                radial-gradient(circle at 0% 100%, rgba(34, 211, 238, 0.03), transparent 40%);
+  }
+  .grid-pattern {
+    background-image: radial-gradient(rgba(255,255,255,0.04) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+}
+
+/* ================================================================
+   UTILITIES
+   ================================================================ */
+@layer utilities {
+  .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .status-live {
+    width: 8px; height: 8px; border-radius: 999px; background: #22c55e;
+    box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+  }
+}
