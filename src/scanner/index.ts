@@ -1,4 +1,4 @@
-// VibeCode — Scan Orchestrator
+// InjectProof — Scan Orchestrator
 // Main entry point for running vulnerability scans
 // Coordinates crawling, detection, evidence collection, and result storage
 
@@ -8,6 +8,7 @@ import { crawlTargetHeadless } from '@/scanner/headless-crawler';
 import { isCdpAvailable } from '@/scanner/headless-browser';
 import { ALL_DETECTORS } from '@/scanner/detectors';
 import { runSmartFormSqliScan, type SmartFormScanConfig } from '@/scanner/smart-form-sqlmap';
+import { runReconScan, type ReconConfig } from '@/scanner/recon-scanner';
 import prisma from '@/lib/prisma';
 
 export type ProgressCallback = (progress: ScanProgress) => void;
@@ -262,7 +263,69 @@ export async function runScan(
         }
 
         // ========================================
-        // PHASE 2.5: SMART FORM SQLi (Auto-Havij)
+        // PHASE 2.75: RECONNAISSANCE (Admin Panels + Backup Files + Tech Fingerprinting)
+        // ========================================
+        const reconProgress: ScanProgress = {
+            scanId: config.scanId,
+            phase: 'scanning',
+            progress: 83,
+            urlsDiscovered: crawlResult.discoveredUrls.length,
+            urlsScanned,
+            vulnsFound: totalVulns,
+            message: '🔍 Reconnaissance — discovering admin panels, backup files, fingerprinting technology...',
+            currentModule: 'Recon Scanner',
+        };
+        onProgress?.(reconProgress);
+        await persistProgress(config.scanId, reconProgress);
+
+        await addScanLog(config.scanId, 'info', 'recon', 'Starting reconnaissance: admin panels, backup files, technology fingerprinting');
+
+        try {
+            const reconConfig: ReconConfig = {
+                baseUrl: config.baseUrl,
+                requestTimeout: config.requestTimeout,
+                userAgent: config.userAgent || 'InjectProof-Scanner/1.0',
+                customHeaders: config.customHeaders,
+                authHeaders: buildAuthHeaders(config),
+                concurrency: 10,
+            };
+
+            const reconResult = await runReconScan(reconConfig);
+
+            // Log summary
+            await addScanLog(config.scanId, 'info', 'recon',
+                `Recon complete: ${reconResult.adminPanels.length} admin panels, ${reconResult.backupFiles.length} backup files, ${reconResult.technologies.length} technologies detected`);
+
+            // Save findings
+            for (const finding of reconResult.findings) {
+                if (finding.found) {
+                    await saveVulnerability(config, finding, 'recon_scanner');
+                    totalVulns++;
+                    payloadCount++;
+                }
+            }
+
+            if (reconResult.adminPanels.length > 0) {
+                await addScanLog(config.scanId, 'warn', 'recon',
+                    `🚪 Admin panels found: ${reconResult.adminPanels.filter(p => p.confidence === 'confirmed').map(p => p.url).join(', ')}`);
+            }
+
+            if (reconResult.backupFiles.length > 0) {
+                await addScanLog(config.scanId, 'warn', 'recon',
+                    `📦 Exposed backup files: ${reconResult.backupFiles.map(f => f.url).join(', ')}`);
+            }
+
+            if (reconResult.technologies.length > 0) {
+                await addScanLog(config.scanId, 'info', 'recon',
+                    `🔧 Technologies: ${reconResult.technologies.map(t => `${t.name}${t.version ? ` v${t.version}` : ''}`).join(', ')}`);
+            }
+        } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            await addScanLog(config.scanId, 'error', 'recon', `Recon error: ${errMsg}`);
+        }
+
+        // ========================================
+        // PHASE 2.5: SMART FORM SQLi (InjectProof Deep Engine)
         // ========================================
         if (crawlConfig.enableHeadless) {
             const smartFormProgress: ScanProgress = {
@@ -278,7 +341,7 @@ export async function runScan(
             onProgress?.(smartFormProgress);
             await persistProgress(config.scanId, smartFormProgress);
 
-            await addScanLog(config.scanId, 'info', 'smart-form-sqli', 'Starting Smart Form SQLi Engine (Auto-Havij/SQLmap mode)');
+            await addScanLog(config.scanId, 'info', 'smart-form-sqli', 'Starting InjectProof Smart Form SQLi Engine');
 
             const smartConfig: SmartFormScanConfig = {
                 baseUrl: config.baseUrl,

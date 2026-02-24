@@ -1,11 +1,11 @@
-// VibeCode — Authentication Library
+// InjectProof — Authentication Library
 // JWT token creation/verification + password hashing using jose + bcryptjs
 
 import { SignJWT, jwtVerify, type JWTPayload } from 'jose';
 import bcrypt from 'bcryptjs';
 
 const JWT_SECRET = new TextEncoder().encode(
-    process.env.JWT_SECRET || 'vibecode-fallback-secret-change-me'
+    process.env.JWT_SECRET || 'InjectProof-fallback-secret-change-me'
 );
 
 const TOKEN_EXPIRY = '24h';
@@ -31,7 +31,7 @@ export async function createToken(payload: Omit<TokenPayload, 'iat' | 'exp' | 'i
     return new SignJWT(payload)
         .setProtectedHeader({ alg: 'HS256' })
         .setIssuedAt()
-        .setIssuer('vibecode')
+        .setIssuer('injectproof')
         .setExpirationTime(TOKEN_EXPIRY)
         .sign(JWT_SECRET);
 }
@@ -44,7 +44,7 @@ export async function createToken(payload: Omit<TokenPayload, 'iat' | 'exp' | 'i
 export async function verifyToken(token: string): Promise<TokenPayload | null> {
     try {
         const { payload } = await jwtVerify(token, JWT_SECRET, {
-            issuer: 'vibecode',
+            issuer: 'injectproof',
         });
         return payload as TokenPayload;
     } catch {
@@ -94,7 +94,7 @@ export function extractToken(cookieHeader?: string, authHeader?: string): string
     // Try cookie
     if (cookieHeader) {
         const cookies = cookieHeader.split(';').map(c => c.trim());
-        const tokenCookie = cookies.find(c => c.startsWith('vibecode_token='));
+        const tokenCookie = cookies.find(c => c.startsWith('injectproof_token='));
         if (tokenCookie) {
             return tokenCookie.split('=')[1];
         }

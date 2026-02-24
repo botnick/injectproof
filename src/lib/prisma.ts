@@ -1,4 +1,4 @@
-// VibeCode — Prisma Client Singleton
+// InjectProof — Prisma Client Singleton
 // Prevents multiple Prisma instances in development (hot reload)
 
 import { PrismaClient } from '@prisma/client';

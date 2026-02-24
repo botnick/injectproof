@@ -1,5 +1,5 @@
 // ============================================================
-// VibeCode — Core Payload Definitions
+// InjectProof — Core Payload Definitions
 // Extended payload generators with real-world payloads curated from:
 //   - https://github.com/swisskyrepo/PayloadsAllTheThings (MIT)
 //   - https://github.com/ihebski/XSS-Payloads
@@ -768,7 +768,7 @@ export const INFO_DISCLOSURE_HEADERS: string[] = [
 ];
 
 // ============================================================
-// VibeCode — Production-Grade Overlay (Non-breaking / Append-only)
+// InjectProof — Production-Grade Overlay (Non-breaking / Append-only)
 // Safe defaults, typed registry, filtering, deterministic shuffle, reporting
 // This layer DOES NOT modify existing exports above.
 // ============================================================

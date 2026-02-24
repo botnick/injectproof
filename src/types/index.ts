@@ -1,4 +1,4 @@
-// VibeCode — Shared TypeScript Types
+// InjectProof — Shared TypeScript Types
 // All type definitions used across the platform
 
 // ============================================================
@@ -296,7 +296,7 @@ export interface DetectorResult {
     internalNetworkExposure?: boolean;
     extractedCloudSecrets?: string; // JSON
     postExploitationEvidence?: string; // JSON/text
-    // Deep SQLi exploitation data (Havij-style DB enumeration)
+    // Deep SQLi exploitation data (InjectProof multi-technique extraction)
     sqliExploitData?: string; // JSON: SqliExploitResult from sqli-exploiter.ts
 }
 

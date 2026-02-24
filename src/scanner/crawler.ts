@@ -1,4 +1,4 @@
-// VibeCode — Web Crawler
+// InjectProof — Web Crawler
 // Hybrid crawler with HTML parsing + link discovery + parameter extraction
 
 import * as cheerio from 'cheerio';

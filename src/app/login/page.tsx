@@ -1,4 +1,4 @@
-// InjectProof — Login Page (Deep Glassmorphism)
+// InjectProof — Login Page
 'use client';
 
 import { useState } from 'react';
@@ -15,8 +15,8 @@ export default function LoginPage() {
 
     const loginMutation = trpc.auth.login.useMutation({
         onSuccess: (data) => {
-            localStorage.setItem('vibecode_token', data.token);
-            document.cookie = `vibecode_token=${data.token}; path=/; max-age=86400; SameSite=Strict`;
+            localStorage.setItem('injectproof_token', data.token);
+            document.cookie = `injectproof_token=${data.token}; path=/; max-age=86400; SameSite=Strict`;
             router.push('/dashboard');
         },
         onError: (err) => {
@@ -82,7 +82,7 @@ export default function LoginPage() {
                                     type="email"
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
-                                    placeholder="admin@vibecode.local"
+                                    placeholder="admin@injectproof.local"
                                     className="input-field pl-11"
                                     required
                                     autoFocus
@@ -135,7 +135,7 @@ export default function LoginPage() {
 
                     <div className="mt-6 pt-5 border-t border-white/[0.05] relative z-10">
                         <p className="text-[11px] text-gray-600 text-center">
-                            Demo: <code className="text-brand-400/60 font-mono">admin@vibecode.local</code> / <code className="text-brand-400/60 font-mono">admin123</code>
+                            Demo: <code className="text-brand-400/60 font-mono">admin@injectproof.local</code> / <code className="text-brand-400/60 font-mono">admin123</code>
                         </p>
                     </div>
                 </div>

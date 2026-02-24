@@ -1,4 +1,4 @@
-// VibeCode — Scan Router
+// InjectProof — Scan Router
 // Scan management, launch, stop, and log retrieval
 
 import { z } from 'zod';

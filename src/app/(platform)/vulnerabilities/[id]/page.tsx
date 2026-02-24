@@ -1,4 +1,4 @@
-// VibeCode — Vulnerability Detail Page (Premium Glassmorphism)
+// InjectProof — Vulnerability Detail Page (Premium Design)
 'use client';
 
 import { use, useState, useMemo } from 'react';
@@ -262,7 +262,7 @@ export default function VulnDetailPage({ params }: { params: Promise<{ id: strin
 }
 
 /* ══════════════════════════════════════════════════════════
-   SQLi EXPLOITATION PANEL — Havij-Style DB Tree View
+   SQLi EXPLOITATION PANEL — InjectProof DB Tree View
    ══════════════════════════════════════════════════════════ */
 
 function SqliExploitPanel({ data }: { data: SqliExploitResult }) {
@@ -296,7 +296,7 @@ function SqliExploitPanel({ data }: { data: SqliExploitResult }) {
                         </div>
                         <div>
                             <h3 className="text-sm font-semibold text-red-300">Deep SQLi Exploitation Successful</h3>
-                            <p className="text-[10px] text-gray-500 uppercase tracking-wider">Havij-Style Database Enumeration</p>
+                            <p className="text-[10px] text-gray-500 uppercase tracking-wider">InjectProof Multi-Technique Extraction</p>
                         </div>
                         <span className="ml-auto px-2.5 py-1 rounded-full bg-red-500/10 border border-red-500/20 text-[10px] font-bold text-red-400 uppercase tracking-wider">
                             {data.technique}

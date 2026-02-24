@@ -1,4 +1,4 @@
-// VibeCode — Database Seed Script
+// InjectProof — Database Seed Script
 // Creates default admin user and sample data
 
 import { PrismaClient } from '@prisma/client';
@@ -7,16 +7,16 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 async function main() {
-    console.log('🌱 Seeding VibeCode database...');
+    console.log('🌱 Seeding InjectProof database...');
 
     // Create admin user
     const passwordHash = await bcrypt.hash('admin123', 12);
 
     const admin = await prisma.user.upsert({
-        where: { email: 'admin@vibecode.local' },
+        where: { email: 'admin@injectproof.local' },
         update: {},
         create: {
-            email: 'admin@vibecode.local',
+            email: 'admin@injectproof.local',
             passwordHash,
             name: 'Admin',
             role: 'admin',
@@ -30,10 +30,10 @@ async function main() {
     const pentesterHash = await bcrypt.hash('pentester123', 12);
 
     const pentester = await prisma.user.upsert({
-        where: { email: 'pentester@vibecode.local' },
+        where: { email: 'pentester@injectproof.local' },
         update: {},
         create: {
-            email: 'pentester@vibecode.local',
+            email: 'pentester@injectproof.local',
             passwordHash: pentesterHash,
             name: 'Pentester',
             role: 'pentester',
@@ -66,7 +66,7 @@ async function main() {
     console.log(`✅ Sample target created: ${target.name}`);
 
     console.log('\n🎉 Seed complete! You can now log in with:');
-    console.log('   Email: admin@vibecode.local');
+    console.log('   Email: admin@injectproof.local');
     console.log('   Password: admin123');
 }
 

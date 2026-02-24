@@ -1,4 +1,4 @@
-// VibeCode — Settings Page (Glassmorphism)
+// InjectProof — Settings Page (Glassmorphism)
 'use client';
 
 import { Settings, User, Key, Bell, Shield, Database } from 'lucide-react';

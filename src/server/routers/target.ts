@@ -1,4 +1,4 @@
-// VibeCode — Target Router
+// InjectProof — Target Router
 // CRUD operations for scan targets
 
 import { z } from 'zod';

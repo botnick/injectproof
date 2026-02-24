@@ -1,4 +1,4 @@
-// VibeCode — Vulnerabilities List Page (OWASP-Grouped Glassmorphism)
+// InjectProof — Vulnerabilities List Page (OWASP-Grouped Glassmorphism)
 'use client';
 
 import { useState, useMemo } from 'react';

@@ -1,4 +1,4 @@
-// VibeCode — Auth Router
+// InjectProof — Auth Router
 // Login, register, profile management
 
 import { z } from 'zod';

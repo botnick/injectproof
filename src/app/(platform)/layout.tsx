@@ -26,7 +26,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
     const [user, setUser] = useState<{ name: string; email: string; role: string } | null>(null);
 
     useEffect(() => {
-        const token = localStorage.getItem('vibecode_token');
+        const token = localStorage.getItem('injectproof_token');
         if (!token) {
             router.push('/login');
             return;
@@ -40,8 +40,8 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
     }, [router]);
 
     const handleLogout = () => {
-        localStorage.removeItem('vibecode_token');
-        document.cookie = 'vibecode_token=; path=/; max-age=0';
+        localStorage.removeItem('injectproof_token');
+        document.cookie = 'injectproof_token=; path=/; max-age=0';
         router.push('/login');
     };
 

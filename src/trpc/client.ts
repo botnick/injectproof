@@ -1,4 +1,4 @@
-// VibeCode — tRPC Client Setup
+// InjectProof — tRPC Client Setup
 // React Query + tRPC client for use in client components
 
 'use client';

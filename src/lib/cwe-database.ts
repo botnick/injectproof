@@ -1,4 +1,4 @@
-// VibeCode — CWE/OWASP/NIST Mapping Database
+// InjectProof — CWE/OWASP/NIST Mapping Database
 // 200+ CWE entries with full mapping to OWASP Top 10, OWASP ASVS, and NIST 800-53
 
 export interface CweEntry {

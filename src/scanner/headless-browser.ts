@@ -1,4 +1,4 @@
-// VibeCode — Headless Browser Lifecycle Manager
+// InjectProof — Headless Browser Lifecycle Manager
 // 4-tier auto-detection: Lightpanda (Linux) → Remote CDP → Bundled Chromium → OS browser
 // Provides a managed Puppeteer connection with auto-reconnect and graceful shutdown
 

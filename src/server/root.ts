@@ -1,4 +1,4 @@
-// VibeCode — Root Router
+// InjectProof — Root Router
 // Merges all sub-routers into a single tRPC router
 
 import { router } from '@/server/trpc';

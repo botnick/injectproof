@@ -1,4 +1,4 @@
-// VibeCode — Dashboard Page (Deep Glassmorphism)
+// InjectProof — Dashboard Page (Deep Glassmorphism)
 'use client';
 
 import { trpc } from '@/trpc/client';

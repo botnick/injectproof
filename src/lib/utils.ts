@@ -1,4 +1,4 @@
-// VibeCode — Utility Functions
+// InjectProof — Utility Functions
 // Common helpers used across the platform
 
 import { v4 as uuidv4 } from 'uuid';

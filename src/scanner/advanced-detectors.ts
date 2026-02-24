@@ -1,4 +1,4 @@
-// VibeCode — Advanced Red-Team Detectors
+// InjectProof — Advanced Red-Team Detectors
 // Elite capabilities: Race Conditions, HTTP Desync, Prototype Pollution,
 // Padding Oracle, Vulnerability Chaining, Cloud Metadata SSRF
 // These run ADDITIVELY on top of standard detectors

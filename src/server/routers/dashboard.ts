@@ -1,4 +1,4 @@
-// VibeCode — Dashboard Router
+// InjectProof — Dashboard Router
 // Statistics, trend data, severity distribution, and recent scans
 
 import { z } from 'zod';

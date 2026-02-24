@@ -1,4 +1,4 @@
-// VibeCode — Targets List Page
+// InjectProof — Targets List Page
 'use client';
 
 import { useState } from 'react';

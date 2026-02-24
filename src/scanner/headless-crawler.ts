@@ -1,4 +1,4 @@
-// VibeCode — Headless Crawler (JS-aware)
+// InjectProof — Headless Crawler (JS-aware)
 // Uses headless browser via 4-tier auto-detection to crawl JS-rendered pages
 // Discovers dynamic links, AJAX endpoints, forms, and parameters
 // that static crawling (fetch + cheerio) would miss entirely

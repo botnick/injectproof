@@ -1,4 +1,4 @@
-// VibeCode — tRPC Provider
+// InjectProof — tRPC Provider
 // Wraps app with tRPC + React Query providers
 
 'use client';
@@ -18,10 +18,10 @@ function getToken(): string | null {
     if (typeof window === 'undefined') return null;
     // Try cookie first
     const cookies = document.cookie.split(';').map(c => c.trim());
-    const tokenCookie = cookies.find(c => c.startsWith('vibecode_token='));
+    const tokenCookie = cookies.find(c => c.startsWith('injectproof_token='));
     if (tokenCookie) return tokenCookie.split('=')[1];
     // Try localStorage
-    return localStorage.getItem('vibecode_token');
+    return localStorage.getItem('injectproof_token');
 }
 
 export function TRPCProvider({ children }: { children: React.ReactNode }) {

@@ -1,4 +1,4 @@
-// VibeCode — CVSS v3.1 Calculator
+// InjectProof — CVSS v3.1 Calculator
 // Full implementation of CVSS v3.1 scoring algorithm
 // Reference: https://www.first.org/cvss/v3.1/specification-document
 

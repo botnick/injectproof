@@ -1,4 +1,4 @@
-// VibeCode — tRPC Server Initialization
+// InjectProof — tRPC Server Initialization
 // Sets up tRPC v11 with middleware for auth and error handling
 
 import { initTRPC, TRPCError } from '@trpc/server';

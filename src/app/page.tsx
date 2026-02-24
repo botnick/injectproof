@@ -1,4 +1,4 @@
-// VibeCode — Landing page → redirect to dashboard or login
+// InjectProof — Landing page → redirect to dashboard or login
 'use client';
 
 import { useEffect } from 'react';
@@ -8,7 +8,7 @@ export default function Home() {
     const router = useRouter();
 
     useEffect(() => {
-        const token = localStorage.getItem('vibecode_token');
+        const token = localStorage.getItem('injectproof_token');
         if (token) {
             router.push('/dashboard');
         } else {

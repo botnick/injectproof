@@ -1,4 +1,4 @@
-// VibeCode — EASM: External Attack Surface Management
+// InjectProof — EASM: External Attack Surface Management
 // Subdomain enum, cloud bucket hunting, leaked secret analysis, shadow API discovery
 // These are ADDITIVE modules — they don't modify existing scanner behavior
 

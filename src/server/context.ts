@@ -1,4 +1,4 @@
-// VibeCode — tRPC Context
+// InjectProof — tRPC Context
 // Creates request context with database connection and authenticated user
 
 import { type FetchCreateContextFnOptions } from '@trpc/server/adapters/fetch';

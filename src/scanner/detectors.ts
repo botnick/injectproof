@@ -1,4 +1,4 @@
-// VibeCode — Vulnerability Detectors
+// InjectProof — Vulnerability Detectors
 // All detection modules consolidated: XSS, SQLi, SSRF, Headers, Info Disclosure,
 // Path Traversal, Open Redirect, CORS, Auth Issues, JWT, Command Injection, SSTI
 
@@ -273,7 +273,7 @@ export async function detectSqli(
                 if (timeBasedConfirmed) { detectionMethod = 'time-based'; confidence = 'medium'; }
                 if (booleanConfirmed) { detectionMethod = 'boolean-based'; confidence = 'medium'; }
 
-                // ── Deep SQLi Exploitation (Havij-Style) ──────────────
+                // ── InjectProof Deep SQLi Exploitation ──────────────
                 // Automatically attempt full DB enumeration when SQLi is confirmed
                 let sqliExploitData: string | undefined;
                 let deepTechnicalDetail = '';

@@ -1,4 +1,4 @@
-// VibeCode — New Scan Page
+// InjectProof — New Scan Page
 'use client';
 
 import { useState, Suspense } from 'react';

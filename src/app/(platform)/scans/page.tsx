@@ -1,4 +1,4 @@
-// VibeCode — Scans List Page (Premium Glassmorphism + Delete)
+// InjectProof — Scans List Page (Premium Glassmorphism + Delete)
 'use client';
 
 import { useState } from 'react';
