@@ -71,11 +71,11 @@ export default function ScansPage() {
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3.5">
                     <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-brand-500/10 border border-brand-500/20">
-                        <Radar className="w-5 h-5 text-violet-400" />
+                        <Radar className="w-5 h-5 text-[var(--accent)]" />
                     </div>
                     <div>
-                        <h1 className="text-xl font-semibold text-white tracking-tight">Scans</h1>
-                        <p className="text-xs text-gray-600 mt-0.5">{stats.total} total · {stats.running} active</p>
+                        <h1 className="text-xl font-semibold text-[var(--text-primary)] tracking-tight">Scans</h1>
+                        <p className="text-xs text-[var(--text-muted)] mt-0.5">{stats.total} total · {stats.running} active</p>
                     </div>
                 </div>
                 <Link href="/scans/new" className="btn-primary flex items-center gap-2 text-sm">
@@ -85,7 +85,7 @@ export default function ScansPage() {
 
             {/* ── Quick Stats ────────────────────────── */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-                <MiniStatCard label="Total" value={stats.total} icon={<Radar className="w-3.5 h-3.5" />} color="text-white" />
+                <MiniStatCard label="Total" value={stats.total} icon={<Radar className="w-3.5 h-3.5" />} color="text-[var(--text-primary)]" />
                 <MiniStatCard label="Running" value={stats.running} icon={<Loader2 className="w-3.5 h-3.5 animate-spin" />} color="text-emerald-400" dot="bg-emerald-400" />
                 <MiniStatCard label="Completed" value={stats.completed} icon={<CheckCircle2 className="w-3.5 h-3.5" />} color="text-blue-400" />
                 <MiniStatCard label="Failed" value={stats.failed} icon={<XCircle className="w-3.5 h-3.5" />} color="text-red-400" />
@@ -100,8 +100,8 @@ export default function ScansPage() {
                             key={status}
                             onClick={() => setFilterStatus(status)}
                             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 capitalize ${filterStatus === status
-                                ? 'bg-violet-500/15 text-violet-300 border border-violet-500/20'
-                                : 'text-gray-500 hover:text-gray-300 border border-transparent'
+                                ? 'bg-violet-500/15 text-[var(--accent)] border border-violet-500/20'
+                                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-transparent'
                                 }`}
                         >
                             {status}
@@ -150,7 +150,7 @@ export default function ScansPage() {
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2.5">
                                             <Link href={`/scans/${scan.id}`}
-                                                className="text-sm font-semibold text-gray-200 hover:text-white transition-colors truncate">
+                                                className="text-sm font-semibold text-[var(--text-primary)] hover:text-[var(--accent)] transition-colors truncate">
                                                 {scan.target?.name || 'Unknown Target'}
                                             </Link>
                                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${typeCfg.accent}`}>
@@ -226,7 +226,7 @@ export default function ScansPage() {
 
                                         {/* View button */}
                                         <Link href={`/scans/${scan.id}`}
-                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:text-white bg-white/[0.03] border border-white/[0.06] hover:border-white/[0.12] hover:bg-white/[0.06] transition-all duration-200">
+                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] bg-[var(--bg-subtle)] border border-[var(--border-subtle)] hover:border-[var(--bg-hover)] hover:bg-[var(--bg-hover)] transition-all duration-200">
                                             <ExternalLink className="w-3 h-3" />
                                             View
                                         </Link>

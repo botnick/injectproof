@@ -1,15 +1,46 @@
 // InjectProof — EASM: External Attack Surface Management
 // Subdomain enum, cloud bucket hunting, leaked secret analysis, shadow API discovery
-// These are ADDITIVE modules — they don't modify existing scanner behavior
+// These are ADDITIVE modules — they don't modify existing scanner behavior.
+//
+// **Silent catch policy in this file:** probe failures in EASM are
+// load-bearing "probe returned nothing interesting" outcomes — a DNS that
+// doesn't resolve, an S3 bucket that doesn't exist, a source-map URL that
+// 404s. Logging each at warn level would flood ScanLog (thousands of probes
+// per run). They're marked with explicit intent comments and gated by a
+// shared `probeIgnore` helper so a future reviewer can easily flip them to
+// debug-level logging by changing one function.
 
 import type { DetectorResult } from '@/types';
 import { buildRequestString, buildResponseString } from '@/lib/utils';
+import { logScan } from '@/scanner/engine/log';
 
 interface EasmConfig {
     baseUrl: string;
     domain: string; // extracted domain (e.g., "example.com")
     requestTimeout: number;
     userAgent: string;
+    /** Optional scan ID — when present, probe failures log at debug level. */
+    scanId?: string;
+}
+
+/**
+ * Intent-documenting helper for the "probe returned nothing, move on"
+ * pattern. When `scanId` is set AND `CI`-level debugging is desired, this
+ * will emit a debug-level ScanLog. Otherwise it's a no-op — the returning-
+ * nothing is the outcome.
+ */
+async function probeIgnore(
+    config: EasmConfig,
+    operation: string,
+    err: unknown,
+): Promise<void> {
+    if (!config.scanId || process.env.EASM_DEBUG !== 'true') return;
+    await logScan({
+        scanId: config.scanId,
+        level: 'debug',
+        module: 'easm',
+        message: `${operation}: probe ignored (${err instanceof Error ? err.message : String(err)})`,
+    });
 }
 
 // ============================================================
@@ -38,7 +69,7 @@ export async function enumerateSubdomains(config: EasmConfig): Promise<string[]>
                 }
             }
         }
-    } catch { /* crt.sh unavailable */ }
+    } catch (err) { await probeIgnore(config, 'crt.sh query', err); }
 
     // Source 2: DNS brute-force with common prefixes
     const commonPrefixes = [
@@ -62,7 +93,9 @@ export async function enumerateSubdomains(config: EasmConfig): Promise<string[]>
                 redirect: 'manual',
             });
             if (response.status > 0) subdomains.add(subdomain);
-        } catch {
+        } catch (httpsErr) {
+            // HTTPS probe failed — try plain HTTP as a secondary signal.
+            await probeIgnore(config, `subdomain https://${subdomain}`, httpsErr);
             try {
                 const response = await fetch(`http://${subdomain}`, {
                     method: 'HEAD',
@@ -70,7 +103,7 @@ export async function enumerateSubdomains(config: EasmConfig): Promise<string[]>
                     redirect: 'manual',
                 });
                 if (response.status > 0) subdomains.add(subdomain);
-            } catch { /* not resolvable */ }
+            } catch (httpErr) { await probeIgnore(config, `subdomain http://${subdomain}`, httpErr); }
         }
     }
 
@@ -83,7 +116,7 @@ export async function enumerateSubdomains(config: EasmConfig): Promise<string[]>
             try {
                 const r = await fetch(`https://${permuted}`, { method: 'HEAD', signal: AbortSignal.timeout(2000), redirect: 'manual' });
                 if (r.status > 0) subdomains.add(permuted);
-            } catch { /* not resolvable */ }
+            } catch (err) { await probeIgnore(config, `altdns permutation ${permuted}`, err); }
         }
     }
 
@@ -166,7 +199,7 @@ export async function huntCloudBuckets(config: EasmConfig): Promise<DetectorResu
                         mappedNist: ['AC-3', 'SC-28'],
                     });
                 }
-            } catch { /* bucket doesn't exist or timeout */ }
+            } catch (err) { await probeIgnore(config, `cloud bucket probe`, err); }
         }
     }
 
@@ -276,10 +309,10 @@ export async function scanForLeakedSecrets(
                                 mappedOwasp: ['A05:2021'],
                             });
                         }
-                    } catch { /* source map not accessible */ }
+                    } catch (err) { await probeIgnore(config, `source-map fetch`, err); }
                 }
             }
-        } catch { /* JS file fetch failed */ }
+        } catch (err) { await probeIgnore(config, `js asset fetch`, err); }
     }
 
     return results;
@@ -337,7 +370,7 @@ export async function discoverShadowApis(config: EasmConfig): Promise<DetectorRe
                 const body = await response.text();
                 accessibleEndpoints.push({ path, status: response.status, body: body.substring(0, 2000) });
             }
-        } catch { /* not accessible */ }
+        } catch (err) { await probeIgnore(config, `shadow-api path probe`, err); }
     }
 
     // Flag interesting findings

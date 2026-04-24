@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { trpc } from '@/trpc/client';
 import Link from 'next/link';
-import { Target, Plus, Search, Globe, Shield, ExternalLink, Trash2 } from 'lucide-react';
+import { Target, Plus, Search, Globe, Shield, ExternalLink, Trash2, Pencil } from 'lucide-react';
 
 export default function TargetsPage() {
     const [search, setSearch] = useState('');
@@ -17,7 +17,7 @@ export default function TargetsPage() {
             <div className="flex items-center justify-between">
                 <div className="page-header !mb-0">
                     <h1 className="page-title flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-emerald-500/10 border border-emerald-500/20"><Target className="w-4 h-4 text-emerald-400" /></div>
+                        <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-emerald-500/10 border border-emerald-500/20"><Target className="w-4 h-4 text-emerald-600" /></div>
                         Targets
                     </h1>
                     <p className="page-subtitle">{data?.total || 0} registered targets</p>
@@ -63,7 +63,7 @@ export default function TargetsPage() {
                             {data.items.map((target: any) => (
                                 <tr key={target.id}>
                                     <td>
-                                        <Link href={`/targets/${target.id}`} className="font-medium text-gray-200 hover:text-brand-400 transition-colors">
+                                        <Link href={`/targets/${target.id}`} className="font-medium text-[var(--text-primary)] hover:text-[var(--accent)] transition-colors">
                                             {target.name}
                                         </Link>
                                     </td>
@@ -73,9 +73,10 @@ export default function TargetsPage() {
                                     <td>{target._count?.scans || 0}</td>
                                     <td>{target._count?.vulnerabilities || 0}</td>
                                     <td>
-                                        <div className="flex gap-2">
-                                            <Link href={`/targets/${target.id}`} className="text-gray-500 hover:text-brand-400"><ExternalLink className="w-4 h-4" /></Link>
-                                            <button onClick={() => { if (confirm('Delete this target?')) deleteMutation.mutate(target.id); }} className="text-gray-500 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+                                        <div className="flex gap-2 items-center">
+                                            <Link href={`/targets/${target.id}`} title="View" className="p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-all"><ExternalLink className="w-4 h-4" /></Link>
+                                            <Link href={`/targets/${target.id}/edit`} title="Edit" className="p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--accent-glow)] transition-all"><Pencil className="w-4 h-4" /></Link>
+                                            <button onClick={() => { if (confirm('Delete this target?')) deleteMutation.mutate(target.id); }} title="Delete" className="p-1.5 rounded-md text-[var(--text-muted)] hover:text-red-500 hover:bg-red-50 transition-all"><Trash2 className="w-4 h-4" /></button>
                                         </div>
                                     </td>
                                 </tr>

@@ -4,6 +4,8 @@
 import { z } from 'zod';
 import { router, protectedProcedure, pentesterProcedure } from '@/server/trpc';
 import { TRPCError } from '@trpc/server';
+import { checkTargetUrl } from '@/lib/ssrf-guard';
+import { assertTargetOwnership } from '@/server/auth-middleware';
 
 export const targetRouter = router({
     /** List all targets with pagination and filtering */
@@ -95,8 +97,22 @@ export const targetRouter = router({
             maxUrls: z.number().min(1).max(5000).default(500),
             requestTimeout: z.number().min(1000).max(120000).default(30000),
             rateLimit: z.number().min(1).max(100).default(10),
+            /** Enterprise: allow private/loopback targets only when lab-mode is explicitly opted in. */
+            labOverride: z.boolean().optional(),
         }))
         .mutation(async ({ ctx, input }) => {
+            // SSRF guard — reject private/loopback/metadata IPs unless lab mode
+            // is opted in AND the caller is at least security_lead.
+            const labAllowed = input.labOverride === true
+                && (ctx.user!.role === 'security_lead' || ctx.user!.role === 'admin');
+            const guard = await checkTargetUrl(input.baseUrl, { labOverride: labAllowed });
+            if (!guard.allowed) {
+                throw new TRPCError({
+                    code: 'BAD_REQUEST',
+                    message: `Target URL rejected by SSRF guard: ${guard.reason ?? 'unknown reason'}`,
+                });
+            }
+
             const target = await ctx.prisma.target.create({
                 data: {
                     name: input.name,
@@ -152,7 +168,21 @@ export const targetRouter = router({
             isActive: z.boolean().optional(),
         }))
         .mutation(async ({ ctx, input }) => {
+            // Ownership gate — only the creator or security_lead+ may edit.
+            await assertTargetOwnership({ user: { id: ctx.user!.userId, role: ctx.user!.role } }, input.id);
+
             const { id, tags, authConfig, headers, excludePaths, includePaths, ...rest } = input;
+
+            // If the caller is changing baseUrl, re-run the SSRF guard.
+            if (rest.baseUrl) {
+                const guard = await checkTargetUrl(rest.baseUrl);
+                if (!guard.allowed) {
+                    throw new TRPCError({
+                        code: 'BAD_REQUEST',
+                        message: `baseUrl rejected by SSRF guard: ${guard.reason ?? 'unknown reason'}`,
+                    });
+                }
+            }
 
             const target = await ctx.prisma.target.update({
                 where: { id },

@@ -94,3 +94,6 @@ chrome-data/
 *.heapprofile
 *.heapsnapshot
 CLAUDE.md
+/.claude
+/bench
+/docs

@@ -8,13 +8,13 @@ import Link from 'next/link';
 import { ArrowLeft, Radar, Play, Zap, Shield, Search as SearchIcon } from 'lucide-react';
 
 const SCAN_MODULES = [
-    { id: 'xss', name: 'XSS Detection', desc: 'Reflected, Stored, DOM-based XSS' },
-    { id: 'sqli', name: 'SQL Injection', desc: 'Error, Boolean, Time-based SQLi' },
-    { id: 'ssrf', name: 'SSRF', desc: 'Server-Side Request Forgery' },
-    { id: 'headers', name: 'Security Headers', desc: 'Missing/misconfigured headers' },
-    { id: 'cors', name: 'CORS', desc: 'Cross-Origin misconfiguration' },
-    { id: 'path_traversal', name: 'Path Traversal', desc: 'Directory traversal attacks' },
-    { id: 'open_redirect', name: 'Open Redirect', desc: 'Unvalidated redirects' },
+    { id: 'xss_oracle',           name: 'XSS Detection',       desc: 'Reflected, Stored, DOM-based XSS — oracle-driven, baseline comparison' },
+    { id: 'sqli_oracle',          name: 'SQL Injection',        desc: 'Error, Boolean, Time-based SQLi — context-inferred, grammar-synthesized' },
+    { id: 'ssrf_oracle',          name: 'SSRF',                 desc: 'Server-Side Request Forgery — adaptive oracle detection' },
+    { id: 'headers',              name: 'Security Headers',     desc: 'Missing or misconfigured HTTP security headers' },
+    { id: 'cors',                 name: 'CORS',                 desc: 'Cross-Origin policy misconfiguration' },
+    { id: 'path_traversal_oracle',name: 'Path Traversal',       desc: 'Directory traversal — oracle-validated, not regex-matched' },
+    { id: 'open_redirect',        name: 'Open Redirect',        desc: 'Unvalidated redirect and forward attacks' },
 ];
 
 export default function NewScanPage() {
@@ -56,7 +56,7 @@ function NewScanContent() {
     return (
         <div className="max-w-2xl mx-auto space-y-6 animate-fade-in">
             <div className="flex items-center gap-3">
-                <Link href="/scans" className="p-2 rounded-lg hover:bg-surface-800/50 text-gray-400 hover:text-white transition-all"><ArrowLeft className="w-5 h-5" /></Link>
+                <Link href="/scans" className="p-2 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all"><ArrowLeft className="w-5 h-5" /></Link>
                 <div className="page-header !mb-0">
                     <h1 className="page-title">New Scan</h1>
                     <p className="page-subtitle">Configure and launch a vulnerability scan</p>
@@ -86,9 +86,9 @@ function NewScanContent() {
                             { id: 'custom', label: 'Custom', icon: <Radar className="w-4 h-4" />, desc: 'Pick modules' },
                         ].map(type => (
                             <button key={type.id} type="button" onClick={() => setScanType(type.id)}
-                                className={`p-3 rounded-xl border text-left transition-all ${scanType === type.id ? 'border-brand-500 bg-brand-600/10' : 'border-surface-700 hover:border-surface-600 bg-surface-900/50'}`}>
+                                className={`p-3 rounded-xl border text-left transition-all ${scanType === type.id ? 'border-brand-500 bg-brand-600/10' : 'border-[var(--border-subtle)] hover:border-[var(--bg-hover)] bg-[var(--bg-subtle)]'}`}>
                                 <div className={`mb-2 ${scanType === type.id ? 'text-brand-400' : 'text-gray-500'}`}>{type.icon}</div>
-                                <p className={`text-sm font-medium ${scanType === type.id ? 'text-white' : 'text-gray-300'}`}>{type.label}</p>
+                                <p className={`text-sm font-medium ${scanType === type.id ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>{type.label}</p>
                                 <p className="text-xs text-gray-500 mt-0.5">{type.desc}</p>
                             </button>
                         ))}
@@ -102,8 +102,8 @@ function NewScanContent() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
                             {SCAN_MODULES.map(mod => (
                                 <button key={mod.id} type="button" onClick={() => toggleModule(mod.id)}
-                                    className={`p-3 rounded-lg border text-left transition-all ${selectedModules.includes(mod.id) ? 'border-brand-500 bg-brand-600/10' : 'border-surface-700 bg-surface-900/50 hover:border-surface-600'}`}>
-                                    <p className={`text-sm font-medium ${selectedModules.includes(mod.id) ? 'text-white' : 'text-gray-400'}`}>{mod.name}</p>
+                                    className={`p-3 rounded-lg border text-left transition-all ${selectedModules.includes(mod.id) ? 'border-brand-500 bg-brand-600/10' : 'border-[var(--border-subtle)] bg-[var(--bg-subtle)] hover:border-[var(--bg-hover)]'}`}>
+                                    <p className={`text-sm font-medium ${selectedModules.includes(mod.id) ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>{mod.name}</p>
                                     <p className="text-xs text-gray-500">{mod.desc}</p>
                                 </button>
                             ))}
@@ -112,7 +112,7 @@ function NewScanContent() {
                 )}
 
                 {/* Submit */}
-                <div className="flex gap-3 pt-4 border-t border-surface-700">
+                <div className="flex gap-3 pt-4 border-t border-[var(--border-subtle)]">
                     <button type="submit" disabled={!targetId || createScan.isPending} className="btn-primary flex items-center gap-2">
                         {createScan.isPending ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Play className="w-4 h-4" />}
                         {createScan.isPending ? 'Launching...' : 'Launch Scan'}

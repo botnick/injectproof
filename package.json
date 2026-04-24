@@ -8,12 +8,19 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:bench": "tsx bench/runner.ts",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "db:reset": "npx prisma db push --force-reset && npx tsx prisma/seed.ts",
-    "setup": "npm install && npx prisma generate && npx prisma db push && npx tsx prisma/seed.ts"
+    "db:seed:tenant": "tsx prisma/seed-tenant.ts",
+    "build:check": "tsc --noEmit",
+    "envcheck": "tsx scripts/cross/envcheck.mjs",
+    "setup": "npm install && npx prisma generate && npx prisma db push && npx tsx prisma/seed.ts && npx tsx prisma/seed-tenant.ts"
   },
   "dependencies": {
     "@prisma/adapter-better-sqlite3": "^7.4.1",
@@ -53,6 +60,7 @@
     "prisma": "^7.4.1",
     "tailwindcss": "^4.2.1",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.8"
   }
 }

@@ -15,6 +15,32 @@ import { COMMON_CVSS_VECTORS, calculateCvssScore, generateCvssVector } from '@/l
 import { getCweEntry } from '@/lib/cwe-database';
 import { deepExploitSqli } from '@/scanner/sqli-exploiter';
 import { scanHeaderInjection, detectStackedQueries, detectContext, smartMutate, type AdaptiveConfig } from '@/scanner/sqli-adaptive';
+import { logScan } from '@/scanner/engine/log';
+
+/**
+ * Shared helper: if scanId is present, record a structured warn-level log
+ * for a caught error; otherwise silently swallow (unit-test / standalone
+ * invocation mode). Avoids duplicating the error-serialization boilerplate.
+ */
+async function logCatch(
+    config: { scanId?: string },
+    module: string,
+    operation: string,
+    err: unknown,
+): Promise<void> {
+    if (!config.scanId) return;
+    const error = err instanceof Error ? err : new Error(String(err));
+    await logScan({
+        scanId: config.scanId,
+        level: 'warn',
+        module,
+        message: `${operation} failed: ${error.message}`,
+        details: {
+            operation,
+            error: { name: error.name, message: error.message, stack: error.stack },
+        },
+    });
+}
 
 interface DetectorConfig {
     baseUrl: string;
@@ -22,6 +48,12 @@ interface DetectorConfig {
     userAgent: string;
     customHeaders?: Record<string, string>;
     authHeaders?: Record<string, string>;
+    /**
+     * Scan ID routing failures from best-effort detector branches (deep
+     * exploitation, header injection, stacked queries) to ScanLog.
+     * Optional so unit-testing a detector in isolation stays lightweight.
+     */
+    scanId?: string;
 }
 
 // ============================================================
@@ -278,8 +310,9 @@ export async function detectSqli(
                 // Automatically attempt full DB enumeration when SQLi is confirmed
                 let sqliExploitData: string | undefined;
                 let deepTechnicalDetail = '';
+                let exploitResult: Awaited<ReturnType<typeof deepExploitSqli>> | null = null;
                 try {
-                    const exploitResult = await deepExploitSqli(
+                    exploitResult = await deepExploitSqli(
                         endpoint.url,
                         param.type === 'query' ? 'GET' : 'POST',
                         param.name,
@@ -295,29 +328,29 @@ export async function detectSqli(
                             maxRowsPerTable: 5,
                         },
                     );
+                } catch (err) {
+                    await logCatch(config, 'detectors.sqli.deep-exploit', `deepExploitSqli(param=${param.name})`, err);
+                }
 
-                    if (exploitResult) {
-                        sqliExploitData = JSON.stringify(exploitResult);
-                        confidence = 'high'; // Exploitation proves it's real
-                        detectionMethod = `${detectionMethod} + deep exploitation (${exploitResult.technique})`;
+                if (exploitResult) {
+                    sqliExploitData = JSON.stringify(exploitResult);
+                    confidence = 'high'; // Exploitation proves it's real
+                    detectionMethod = `${detectionMethod} + deep exploitation (${exploitResult.technique})`;
 
-                        // Build rich technical detail
-                        const totalTables = exploitResult.databases.reduce((s, d) => s + d.tables.length, 0);
-                        const totalCols = exploitResult.databases.reduce((s, d) => s + d.tables.reduce((s2, t) => s2 + t.columns.length, 0), 0);
-                        deepTechnicalDetail = `\n\n🔓 DEEP EXPLOITATION RESULTS:\n` +
-                            `• DBMS: ${exploitResult.dbms}\n` +
-                            `• Current DB: ${exploitResult.currentDatabase}\n` +
-                            `• Current User: ${exploitResult.currentUser}\n` +
-                            `• Server: ${exploitResult.hostname}\n` +
-                            `• Technique: ${exploitResult.technique}\n` +
-                            `• Columns in query: ${exploitResult.columnCount} (injectable: #${exploitResult.injectableColumn})\n` +
-                            `• Databases found: ${exploitResult.databases.map(d => d.name).join(', ')}\n` +
-                            `• Total tables extracted: ${totalTables}\n` +
-                            `• Total columns extracted: ${totalCols}\n` +
-                            `• Exploit steps: ${exploitResult.exploitLog.length}`;
-                    }
-                } catch {
-                    // Deep exploitation is best-effort — basic detection still valid
+                    // Build rich technical detail
+                    const totalTables = exploitResult.databases.reduce((s, d) => s + d.tables.length, 0);
+                    const totalCols = exploitResult.databases.reduce((s, d) => s + d.tables.reduce((s2, t) => s2 + t.columns.length, 0), 0);
+                    deepTechnicalDetail = `\n\n[DEEP EXPLOITATION RESULTS]\n` +
+                        `• DBMS: ${exploitResult.dbms}\n` +
+                        `• Current DB: ${exploitResult.currentDatabase}\n` +
+                        `• Current User: ${exploitResult.currentUser}\n` +
+                        `• Server: ${exploitResult.hostname}\n` +
+                        `• Technique: ${exploitResult.technique}\n` +
+                        `• Columns in query: ${exploitResult.columnCount} (injectable: #${exploitResult.injectableColumn})\n` +
+                        `• Databases found: ${exploitResult.databases.map(d => d.name).join(', ')}\n` +
+                        `• Total tables extracted: ${totalTables}\n` +
+                        `• Total columns extracted: ${totalCols}\n` +
+                        `• Exploit steps: ${exploitResult.exploitLog.length}`;
                 }
 
                 results.push({
@@ -406,8 +439,8 @@ export async function detectSqli(
                 });
             }
         }
-    } catch {
-        // Header injection scan is best-effort
+    } catch (err) {
+        await logCatch(config, 'detectors.sqli.header-injection', 'scanHeaderInjection', err);
     }
 
     // ── ADVANCED V2: Stacked Queries Detection ──────────────────
@@ -460,8 +493,8 @@ export async function detectSqli(
                     mappedNist: ['SI-10'],
                 });
             }
-        } catch {
-            // Stacked queries detection is best-effort
+        } catch (err) {
+            await logCatch(config, 'detectors.sqli.stacked-queries', 'detectStackedQueries', err);
         }
     }
 
@@ -977,12 +1010,66 @@ export interface DetectorModule {
     detect: (endpoint: CrawledEndpoint, config: DetectorConfig) => Promise<DetectorResult[]>;
 }
 
+import { detectSqliWithOracle } from '@/scanner/engine/detect/oracle-sqli';
+import { detectXssWithOracle, detectSsrfWithOracle, detectPathTraversalWithOracle } from '@/scanner/engine/detect/oracle-xss';
+
+// Oracle-driven detector adapters — same DetectorModule interface so they
+// drop into ALL_DETECTORS. Each delegates to a generic runOracleDetection()
+// pipeline that handles baseline → synthesis → validation uniformly.
+const oracleSqliAdapter = async (endpoint: CrawledEndpoint, config: DetectorConfig) =>
+    detectSqliWithOracle(endpoint, {
+        requestTimeout: config.requestTimeout,
+        userAgent: config.userAgent,
+        extraHeaders: { ...config.customHeaders, ...config.authHeaders },
+    });
+const oracleXssAdapter = async (endpoint: CrawledEndpoint, config: DetectorConfig) =>
+    detectXssWithOracle(endpoint, {
+        requestTimeout: config.requestTimeout,
+        userAgent: config.userAgent,
+        extraHeaders: { ...config.customHeaders, ...config.authHeaders },
+    });
+const oracleSsrfAdapter = async (endpoint: CrawledEndpoint, config: DetectorConfig) =>
+    detectSsrfWithOracle(endpoint, {
+        requestTimeout: config.requestTimeout,
+        userAgent: config.userAgent,
+        extraHeaders: { ...config.customHeaders, ...config.authHeaders },
+    });
+const oraclePathTraversalAdapter = async (endpoint: CrawledEndpoint, config: DetectorConfig) =>
+    detectPathTraversalWithOracle(endpoint, {
+        requestTimeout: config.requestTimeout,
+        userAgent: config.userAgent,
+        extraHeaders: { ...config.customHeaders, ...config.authHeaders },
+    });
+
+/**
+ * Full detector roster — includes both oracle-driven and legacy variants.
+ * Used when resolving a module ID provided by the user (custom scan).
+ * Do NOT use this as the default for full scans — it runs both oracle and
+ * legacy variants for the same vuln types, causing redundant work.
+ */
 export const ALL_DETECTORS: DetectorModule[] = [
-    { name: 'Cross-Site Scripting (XSS)', id: 'xss', detect: detectXss },
-    { name: 'SQL Injection', id: 'sqli', detect: detectSqli },
+    // Oracle-driven (adaptive engine — baseline comparison, context-inferred, grammar-synthesized)
+    { name: 'SQL Injection', id: 'sqli_oracle', detect: oracleSqliAdapter },
+    { name: 'XSS Detection', id: 'xss_oracle', detect: oracleXssAdapter },
+    { name: 'SSRF', id: 'ssrf_oracle', detect: oracleSsrfAdapter },
+    { name: 'Path Traversal', id: 'path_traversal_oracle', detect: oraclePathTraversalAdapter },
+    // Configuration/response-shape checks — no oracle benefit; kept as canonical
     { name: 'Security Headers', id: 'headers', detect: detectHeaderIssues },
     { name: 'CORS Misconfiguration', id: 'cors', detect: detectCors },
-    { name: 'Server-Side Request Forgery', id: 'ssrf', detect: detectSsrf },
-    { name: 'Path Traversal', id: 'path_traversal', detect: detectPathTraversal },
     { name: 'Open Redirect', id: 'open_redirect', detect: detectOpenRedirect },
+    // Legacy heuristic variants — retained for A/B bench comparison only
+    // Remove once bench reports confirm oracle precision ≥ legacy precision
+    { name: 'XSS (legacy heuristic)', id: 'xss', detect: detectXss },
+    { name: 'SQL Injection (legacy heuristic)', id: 'sqli', detect: detectSqli },
+    { name: 'SSRF (legacy heuristic)', id: 'ssrf', detect: detectSsrf },
+    { name: 'Path Traversal (legacy heuristic)', id: 'path_traversal', detect: detectPathTraversal },
 ];
+
+/**
+ * Default detector set for standard/quick/deep scans.
+ * Oracle variants for injection detection; canonical checks for config issues.
+ * Legacy heuristic variants are intentionally excluded to avoid redundant work.
+ */
+export const DEFAULT_DETECTORS: DetectorModule[] = ALL_DETECTORS.filter(d =>
+    ['sqli_oracle', 'xss_oracle', 'ssrf_oracle', 'path_traversal_oracle', 'headers', 'cors', 'open_redirect'].includes(d.id)
+);

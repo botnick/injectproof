@@ -40,9 +40,9 @@ export interface InterceptedRequest {
  * Crawl a web application using a headless browser.
  *
  * **3-tier auto-detection:**
- * 1. 🐼 Lightpanda binary (Linux) — fastest, lightest
- * 2. 🌐 Remote CDP endpoint — if `cdpEndpoint` provided
- * 3. 🖥️ OS browser (last resort) — Edge (Win), Chrome (Linux/Mac)
+ *   1. Lightpanda binary (Linux) — fastest, lightest
+ *   2. Remote CDP endpoint — if `cdpEndpoint` provided
+ *   3. OS browser (last resort) — Edge (Windows), Chrome (Linux/Mac)
  *
  * Discovers dynamically injected links, AJAX endpoints, forms, and parameters
  * that static crawling (fetch + cheerio) would miss entirely.

@@ -11,6 +11,7 @@ import {
     ChevronDown, ChevronRight, ExternalLink,
 } from 'lucide-react';
 import { getCweEntry, OWASP_TOP_10_2021, CATEGORY_DISPLAY_NAMES } from '@/lib/cwe-database';
+import { useScanEvents } from './use-scan-events';
 
 /* ── OWASP category colors ────────────────────────────── */
 const OWASP_COLORS: Record<string, { dot: string; text: string; border: string; bg: string }> = {
@@ -165,13 +166,29 @@ function deduplicateVulns(vulns: any[]): DeduplicatedVuln[] {
 
 export default function ScanDetailPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = use(params);
+    // Live SSE stream — progress + log events push-style. When connected, we
+    // can relax the tRPC polling cadence from 2s to 10s (SSE covers the gap).
+    const events = useScanEvents(id, true);
+    const liveActive = events.connected && !events.terminal;
+
     const { data: scan, isLoading } = trpc.scan.getById.useQuery(id, {
-        refetchInterval: (q) => q.state.data?.status === 'running' ? 2000 : false,
+        refetchInterval: (q) => {
+            if (q.state.data?.status !== 'running') return false;
+            return liveActive ? 10_000 : 2_000;
+        },
     });
-    const { data: logs } = trpc.scan.getLogs.useQuery(
+    const { data: polledLogs } = trpc.scan.getLogs.useQuery(
         { scanId: id, limit: 100 },
-        { refetchInterval: scan?.status === 'running' ? 2000 : false },
+        { refetchInterval: scan?.status === 'running' && !liveActive ? 2_000 : false },
     );
+
+    // Merge SSE logs (live) with polled logs (backfill) — SSE wins by id.
+    const logs = useMemo(() => {
+        const byId = new Map<string, { id: string; level: string; module: string; message: string; timestamp: string | Date }>();
+        for (const l of polledLogs ?? []) byId.set(l.id, l);
+        for (const l of events.logs) byId.set(l.id, l);
+        return [...byId.values()].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    }, [polledLogs, events.logs]);
 
     const logsRef = useRef<HTMLDivElement>(null);
     useEffect(() => {
@@ -200,13 +217,13 @@ export default function ScanDetailPage({ params }: { params: Promise<{ id: strin
             {/* ── Header ────────────────────────────── */}
             <div className="flex items-center gap-3">
                 <Link href="/scans" className="group p-2.5 rounded-xl border border-transparent hover:border-white/[0.06] hover:bg-white/[0.03] transition-all duration-300">
-                    <ArrowLeft className="w-4 h-4 text-gray-500 group-hover:text-white transition-colors" />
+                    <ArrowLeft className="w-4 h-4 text-[var(--text-secondary)] group-hover:text-[var(--text-primary)] transition-colors" />
                 </Link>
                 <div className="flex-1 min-w-0">
-                    <h1 className="text-xl font-semibold text-white tracking-tight truncate">
+                    <h1 className="text-xl font-semibold text-[var(--text-primary)] tracking-tight truncate">
                         {scan.target?.name || 'Scan Results'}
                     </h1>
-                    <p className="text-xs text-gray-500 mt-0.5 tracking-wide">
+                    <p className="text-xs text-[var(--text-secondary)] mt-0.5 tracking-wide">
                         {scan.scanType} scan
                         {scan.duration ? ` · ${scan.duration}s` : isRunning && elapsed > 0 ? ` · ${elapsed}s elapsed` : ''}
                     </p>
@@ -218,7 +235,7 @@ export default function ScanDetailPage({ params }: { params: Promise<{ id: strin
             {isRunning && (
                 <div className="relative overflow-hidden rounded-2xl">
                     <div className="absolute inset-0 rounded-2xl p-px bg-gradient-to-br from-white/[0.12] via-white/[0.04] to-white/[0.08]">
-                        <div className="rounded-2xl w-full h-full bg-[#0a0f1e]" />
+                        <div className="rounded-2xl w-full h-full bg-[var(--bg-card)]" />
                     </div>
                     <div className="relative rounded-2xl bg-white/[0.02] backdrop-blur-2xl p-6 space-y-5">
                         <div className="absolute inset-x-0 top-0 h-px overflow-hidden">
@@ -227,14 +244,14 @@ export default function ScanDetailPage({ params }: { params: Promise<{ id: strin
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3.5">
                                 <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${phase.gradient} p-[1px] ${phase.glow} shadow-lg`}>
-                                    <div className="w-full h-full rounded-[11px] bg-[#0a0f1e] flex items-center justify-center">
-                                        <phase.Icon className="w-4 h-4 text-white animate-pulse" />
+                                    <div className="w-full h-full rounded-[11px] bg-[var(--bg-card)] flex items-center justify-center">
+                                        <phase.Icon className="w-4 h-4 text-[var(--accent)] animate-pulse" />
                                     </div>
                                 </div>
                                 <div>
-                                    <p className="text-sm font-semibold text-white">{phase.label}</p>
+                                    <p className="text-sm font-semibold text-[var(--text-primary)]">{phase.label}</p>
                                     {(scan as any).currentModule && (
-                                        <p className="text-xs text-gray-500 font-mono mt-0.5">{(scan as any).currentModule}</p>
+                                        <p className="text-xs text-[var(--text-secondary)] font-mono mt-0.5">{(scan as any).currentModule}</p>
                                     )}
                                 </div>
                             </div>
@@ -242,8 +259,8 @@ export default function ScanDetailPage({ params }: { params: Promise<{ id: strin
                                 <MiniStat label="URLs" value={scan.totalUrls} />
                                 <MiniStat label="Found" value={scan._count?.vulnerabilities || 0} accent />
                                 <div className="flex items-center gap-2">
-                                    <Gauge className="w-3.5 h-3.5 text-gray-600" />
-                                    <span className="text-sm font-bold text-white tabular-nums">{scan.progress}%</span>
+                                    <Gauge className="w-3.5 h-3.5 text-[var(--text-muted)]" />
+                                    <span className="text-sm font-bold text-[var(--text-primary)] tabular-nums">{scan.progress}%</span>
                                 </div>
                             </div>
                         </div>
@@ -362,7 +379,7 @@ function OwaspGroup({ group }: { group: VulnGroup }) {
                     <span className={`text-[11px] font-mono font-semibold ${colors.text} px-1.5 py-0.5 rounded ${colors.bg} ${colors.border} border`}>
                         {group.owaspId === 'Other' ? 'N/A' : group.owaspId.replace(':2021', '')}
                     </span>
-                    <span className="text-sm font-medium text-gray-300 truncate">
+                    <span className="text-sm font-medium text-[var(--text-primary)] truncate">
                         {group.owaspName}
                     </span>
                 </div>
@@ -405,7 +422,7 @@ function OwaspGroup({ group }: { group: VulnGroup }) {
                                                 {item.cweId}
                                             </span>
                                         )}
-                                        <p className="text-sm text-gray-300 group-hover:text-white truncate transition-colors">
+                                        <p className="text-sm text-[var(--text-primary)] group-hover:text-[var(--accent)] truncate transition-colors">
                                             {item.title}
                                         </p>
                                         {item.parameter && (
@@ -507,7 +524,7 @@ function Pill({ status }: { status: string }) {
 function MiniStat({ label, value, accent }: { label: string; value: number; accent?: boolean }) {
     return (
         <div className="text-right">
-            <p className={`text-sm font-semibold tabular-nums ${accent ? 'text-red-400' : 'text-white'}`}>{value}</p>
+            <p className={`text-sm font-semibold tabular-nums ${accent ? 'text-red-400' : 'text-[var(--text-primary)]'}`}>{value}</p>
             <p className="text-[10px] text-gray-600 uppercase tracking-wider">{label}</p>
         </div>
     );
@@ -518,7 +535,7 @@ function GlassCell({ label, value, color, dot }: { label: string; value: number;
         <div className="group rounded-xl border border-white/[0.06] bg-white/[0.02] backdrop-blur-md p-3 text-center hover:bg-white/[0.04] hover:border-white/[0.1] transition-all duration-300">
             <div className="flex items-center justify-center gap-1.5">
                 {dot && <span className={`w-1.5 h-1.5 rounded-full ${dot} opacity-60`} />}
-                <p className={`text-base font-semibold tabular-nums ${color || 'text-white'}`}>{value}</p>
+                <p className={`text-base font-semibold tabular-nums ${color || 'text-[var(--text-primary)]'}`}>{value}</p>
             </div>
             <p className="text-[10px] text-gray-600 mt-1 uppercase tracking-wider">{label}</p>
         </div>

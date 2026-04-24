@@ -181,8 +181,8 @@ export default function VulnerabilitiesPage() {
                                 key={s.severity}
                                 onClick={() => setSeverity(severity === s.severity ? '' : s.severity)}
                                 className={`flex items-center gap-2 px-3.5 py-2 rounded-xl border text-xs font-medium transition-all cursor-pointer backdrop-blur-sm ${severity === s.severity
-                                    ? 'border-white/[0.15] bg-white/[0.06] text-white'
-                                    : 'border-white/[0.06] bg-white/[0.02] text-gray-400 hover:bg-white/[0.04] hover:border-white/[0.1]'
+                                    ? 'border-white/[0.15] bg-[var(--accent-glow)] text-[var(--text-primary)]'
+                                    : 'border-white/[0.06] bg-white/[0.02] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:border-white/[0.1]'
                                     }`}
                             >
                                 <span className={`w-2 h-2 rounded-full ${s.severity === 'critical' ? 'bg-red-500' :
@@ -280,7 +280,7 @@ function VulnOwaspGroup({ group }: { group: OwaspGroup }) {
                     <span className={`text-[11px] font-mono font-semibold ${colors.text} px-1.5 py-0.5 rounded ${colors.bg} ${colors.border} border`}>
                         {group.owaspId === 'Other' ? 'N/A' : group.owaspId.replace(':2021', '')}
                     </span>
-                    <span className="text-sm font-medium text-gray-300 truncate">
+                    <span className="text-sm font-medium text-[var(--text-primary)] truncate">
                         {group.owaspName}
                     </span>
                 </div>
@@ -318,7 +318,7 @@ function VulnOwaspGroup({ group }: { group: OwaspGroup }) {
                                                 {item.cweId}
                                             </span>
                                         )}
-                                        <p className="text-sm text-gray-300 group-hover:text-white truncate transition-colors">
+                                        <p className="text-sm text-[var(--text-primary)] group-hover:text-[var(--accent)] truncate transition-colors">
                                             {item.title}
                                         </p>
                                         {item.parameter && (

@@ -39,13 +39,13 @@ export default function DashboardPage() {
     }
 
     const tooltipStyle = {
-        background: 'rgba(10, 15, 30, 0.9)',
-        border: '1px solid rgba(255,255,255,0.08)',
+        background: 'var(--bg-card)',
+        border: '1px solid var(--border-subtle)',
         borderRadius: '14px',
-        color: '#e2e8f0',
+        color: 'var(--text-primary)',
         fontSize: '12px',
         backdropFilter: 'blur(24px)',
-        boxShadow: '0 8px 40px rgba(0,0,0,0.3)',
+        boxShadow: '0 8px 40px rgba(0,0,0,0.12)',
     };
 
     return (
@@ -80,7 +80,7 @@ export default function DashboardPage() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Severity Distribution */}
                 <div className="glass-card">
-                    <h3 className="text-sm font-semibold text-gray-300 mb-4 flex items-center gap-2 relative z-10">
+                    <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-4 flex items-center gap-2 relative z-10">
                         <div className="w-1.5 h-1.5 rounded-full bg-brand-400" style={{ boxShadow: '0 0 6px rgba(129,140,248,0.4)' }} />
                         Severity Distribution
                     </h3>
@@ -113,7 +113,7 @@ export default function DashboardPage() {
 
                 {/* Trend Chart */}
                 <div className="glass-card lg:col-span-2">
-                    <h3 className="text-sm font-semibold text-gray-300 mb-4 flex items-center gap-2 relative z-10">
+                    <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-4 flex items-center gap-2 relative z-10">
                         <TrendingUp className="w-4 h-4 text-brand-400" />
                         30-Day Vulnerability Trend
                     </h3>
@@ -146,7 +146,7 @@ export default function DashboardPage() {
             {/* Recent Scans */}
             <div className="glass-card">
                 <div className="flex items-center justify-between mb-4 relative z-10">
-                    <h3 className="text-sm font-semibold text-gray-300 flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2">
                         <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" style={{ boxShadow: '0 0 6px rgba(52, 211, 153, 0.4)' }} />
                         Recent Scans
                     </h3>
@@ -166,11 +166,11 @@ export default function DashboardPage() {
                         <tbody>
                             {recentScans.map((scan: any) => (
                                 <tr key={scan.id} className="cursor-pointer hover-lift" onClick={() => window.location.href = `/scans/${scan.id}`}>
-                                    <td className="font-medium text-gray-200">{scan.target?.name}</td>
-                                    <td><span className="capitalize text-xs text-gray-400">{scan.scanType}</span></td>
+                                    <td className="font-medium text-[var(--text-primary)]">{scan.target?.name}</td>
+                                    <td><span className="capitalize text-xs text-[var(--text-secondary)]">{scan.scanType}</span></td>
                                     <td><StatusBadge status={scan.status} /></td>
                                     <td className="font-mono text-xs">{scan._count?.vulnerabilities || 0}</td>
-                                    <td className="text-xs text-gray-600">{new Date(scan.createdAt).toLocaleDateString()}</td>
+                                    <td className="text-xs text-[var(--text-muted)]">{new Date(scan.createdAt).toLocaleDateString()}</td>
                                 </tr>
                             ))}
                         </tbody>
@@ -210,7 +210,7 @@ function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label:
             <div className="flex items-center justify-between mb-3 relative z-10">
                 <span className={`${cfg.iconColor} opacity-70`}>{icon}</span>
             </div>
-            <p className="text-2xl font-bold text-white tracking-tight relative z-10">{value.toLocaleString()}</p>
+            <p className="text-2xl font-bold text-[var(--text-primary)] tracking-tight relative z-10">{value.toLocaleString()}</p>
             <p className="text-[11px] text-gray-500 mt-1 font-medium relative z-10">{label}</p>
         </div>
     );
@@ -221,8 +221,8 @@ function SeverityCard({ severity, count, color }: { severity: string; count: num
         <div className="glass-card !p-4 flex items-center gap-3 hover-lift">
             <div className="w-3 h-3 rounded-full flex-shrink-0 relative z-10" style={{ background: color, boxShadow: `0 0 12px ${color}30` }} />
             <div className="relative z-10">
-                <p className="text-xl font-bold text-white tracking-tight">{count}</p>
-                <p className="text-[11px] text-gray-600 font-medium">{severity}</p>
+                <p className="text-xl font-bold text-[var(--text-primary)] tracking-tight">{count}</p>
+                <p className="text-[11px] text-[var(--text-muted)] font-medium">{severity}</p>
             </div>
         </div>
     );

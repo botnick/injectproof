@@ -24,7 +24,17 @@ model User {
   mfaEnabled    Boolean  @default(false)
   mfaSecret     String?
   isActive      Boolean  @default(true)
+  // Enterprise hardening: seeded users and admin-created accounts start with
+  // mustChangePassword=true; login flow enforces rotation before issuing a
+  // long-lived JWT. Existing rows default to false (won't force rotation).
+  mustChangePassword Boolean @default(false)
+  passwordChangedAt  DateTime?
+  // Per-account login throttling bucket — packed as "failures:firstFailureTs"
+  loginFailureState  String?
   lastLoginAt   DateTime?
+  /// Tenant membership seed column — nullable to preserve back-compat.
+  /// Back-filled by `npm run db:seed:tenant` to the default Organization id.
+  tenantId      String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -36,6 +46,7 @@ model User {
 
   @@index([email])
   @@index([role])
+  @@index([tenantId])
 }
 
 // ============================================================
@@ -67,6 +78,14 @@ model Target {
   createdById       String
   createdBy         User     @relation(fields: [createdById], references: [id])
 
+  // Enterprise scope enforcement: a target cannot be scanned with
+  // safetyMode='exploit' unless an approved ScopeApproval is attached.
+  scopeApprovalId   String?
+  scopeApproval     ScopeApproval? @relation(fields: [scopeApprovalId], references: [id], onDelete: SetNull)
+
+  /// Tenant membership seed column — nullable for back-compat.
+  tenantId          String?
+
   scans             Scan[]
   scheduledScans    ScheduledScan[]
   vulnerabilities   Vulnerability[]
@@ -75,6 +94,52 @@ model Target {
   @@index([environment])
   @@index([criticality])
   @@index([createdById])
+  @@index([scopeApprovalId])
+  @@index([tenantId])
+}
+
+// ============================================================
+// SCOPE APPROVAL (Enterprise authorization gate)
+// ============================================================
+//
+// Every scan that runs in safetyMode='exploit' (post-exploitation, OS cmd,
+// file read, data extraction) must reference an approved ScopeApproval row.
+// Created by security_lead+ via the UI; carries the written authorization
+// boundary for a target.
+
+model ScopeApproval {
+  id              String   @id @default(uuid())
+  approvedById    String
+  targetId        String   // 1:1 with target, but kept as a column for auditability even after target delete
+
+  // Allowed surface
+  allowedPaths    String   // JSON array of path prefixes the scanner may probe
+  allowedMethods  String   // JSON array, e.g. ["GET","POST"]
+
+  // Capabilities
+  exploitAllowed  Boolean  @default(false)  // unlocks safetyMode='exploit'
+  osCommandAllowed Boolean @default(false)
+  fileReadAllowed  Boolean @default(false)
+  dataExfilAllowed Boolean @default(false)  // allow pulling table rows past schema
+
+  // Time bounds — after expiresAt the approval is ignored
+  validFrom       DateTime @default(now())
+  expiresAt       DateTime?
+
+  // Audit
+  rationale       String?
+  signedDocument  String?  // path to the signed authorization on disk
+  revokedAt       DateTime?
+  revokedReason   String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  targets         Target[]
+
+  @@index([approvedById])
+  @@index([expiresAt])
+  @@index([revokedAt])
 }
 
 // ============================================================
@@ -126,6 +191,19 @@ model Scan {
   errorMessage    String?
   retryCount      Int      @default(0)
 
+  // Worker runtime state
+  // heartbeatAt is updated by the worker every 5s during a scan. Orphan
+  // recovery on server startup marks any running scan with stale heartbeat
+  // as 'failed' so zombie rows don't block the queue.
+  heartbeatAt     DateTime?
+  // Safety posture for this scan — 'observe' (no payloads), 'probe' (oracle
+  // probes only, no exploitation), 'exploit' (full chain). 'exploit' requires
+  // target.scopeApproval.exploitAllowed.
+  safetyMode      String   @default("probe")
+
+  /// Tenant membership seed column — nullable for back-compat.
+  tenantId        String?
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -136,6 +214,8 @@ model Scan {
   @@index([status])
   @@index([startedById])
   @@index([createdAt])
+  @@index([heartbeatAt])
+  @@index([tenantId])
 }
 
 // ============================================================
@@ -246,6 +326,13 @@ model Vulnerability {
   // Deep SQLi Exploitation (Havij-style evidence)
   sqliExploitData          String?  // JSON: full SqliExploitResult (databases, tables, columns, rows, exploit log)
 
+  // Adaptive-engine provenance — populated by validate/pipeline.ts on every
+  // finding the oracle produces. JSON-encoded DetectorProvenance.
+  provenance        String?
+  // Validation level from validate/pipeline.ts — 'confirmed' vs 'candidate'.
+  // Only 'confirmed' findings should count toward SLA/alerting automation.
+  validationLevel   String   @default("candidate")
+
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -277,6 +364,12 @@ model Evidence {
   mimeType        String?  // MIME type
   size            Int?     // bytes
   order           Int      @default(0) // Display order
+  // SHA-256 of content (or of filePath contents if binary). Enables tamper
+  // detection on exported report bundles — reports embed the hash, viewer
+  // re-computes and flags mismatches.
+  hash            String?
+  // If filePath content is AES-encrypted at rest, record the algorithm.
+  encryption      String?
 
   createdAt       DateTime @default(now())
 
@@ -388,4 +481,142 @@ model NotificationConfig {
 
   @@index([userId])
   @@index([channel])
+}
+
+// ============================================================
+// ENTERPRISE: multi-tenancy + policy + surface graph + safety
+// ============================================================
+
+/// องค์กร / tenant — seed หนึ่งรายชื่อ 'default' ตอน migrate ครั้งแรก
+/// เพื่อรักษา backward compatibility. ทุก row เดิมที่ยังไม่มี tenantId ถือว่า
+/// สังกัด default org.
+model Organization {
+  id         String   @id @default(uuid())
+  slug       String   @unique
+  name       String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  deletedAt  DateTime?
+
+  memberships Membership[]
+  apiKeys     ApiKey[]
+  policies    Policy[]
+
+  @@index([slug])
+  @@index([deletedAt])
+}
+
+model Membership {
+  id        String @id @default(uuid())
+  userId    String
+  orgId     String
+  role      String @default("member") // member, admin
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, orgId])
+  @@index([userId])
+  @@index([orgId])
+}
+
+model ApiKey {
+  id         String   @id @default(uuid())
+  orgId      String
+  userId     String
+  name       String
+  hashedKey  String   @unique
+  scopes     String?  // JSON array
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime @default(now())
+
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([userId])
+  @@index([hashedKey])
+}
+
+/// Policy blob — อาจมาจาก YAML/JSON file หรือ built-in profile.
+/// ถ้า orgId = null → global default policy applied to every org that hasn't
+/// overridden it.
+model Policy {
+  id               String   @id @default(uuid())
+  orgId            String?
+  name             String
+  source           String   @default("profile") // profile, yaml, json, db
+  content          String   // JSON-serialized ScanPolicy
+  appliesToTargetIds String? // JSON array of Target ids (optional scoping)
+  createdById      String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  org              Organization? @relation(fields: [orgId], references: [id], onDelete: SetNull)
+
+  @@index([orgId])
+  @@index([name])
+}
+
+/// FSM checkpoint per scan state — ใช้สำหรับ resume + observability.
+model Checkpoint {
+  id         String   @id
+  scanId     String
+  state      String
+  ok         Boolean  @default(false)
+  durationMs Int      @default(0)
+  attempts   Int      @default(1)
+  output     String?  // JSON output of the state handler
+  createdAt  DateTime @default(now())
+
+  @@index([scanId])
+  @@index([state])
+  @@index([createdAt])
+}
+
+/// Surface graph node — endpoint, form, parameter, header, DOM sink, …
+model SurfaceNode {
+  id         String   @id @default(uuid())
+  scanId     String
+  type       String   // endpoint | route | method | parameter | header | cookie | form | json_field | graphql_op | file_upload | auth_boundary | role_boundary | state_transition | dom_sink | redirect_sink | response_template | static_asset
+  key        String   // scoped uniqueness per scan (e.g. url+method+param)
+  attributes String?  // JSON blob
+  createdAt  DateTime @default(now())
+
+  edgesFrom  SurfaceEdge[] @relation("edgeFrom")
+  edgesTo    SurfaceEdge[] @relation("edgeTo")
+
+  @@unique([scanId, type, key])
+  @@index([scanId])
+  @@index([type])
+}
+
+/// Surface graph edge — links_to, submits_to, redirects_to, requires_auth,
+/// mutates_state, accepts_input, reflects_input, shares_schema_with,
+/// discovered_by, protected_by_role, returns_similar_response.
+model SurfaceEdge {
+  id         String   @id @default(uuid())
+  scanId     String
+  fromNodeId String
+  toNodeId   String
+  type       String
+  attributes String?  // JSON
+
+  fromNode   SurfaceNode @relation("edgeFrom", fields: [fromNodeId], references: [id], onDelete: Cascade)
+  toNode     SurfaceNode @relation("edgeTo",   fields: [toNodeId],   references: [id], onDelete: Cascade)
+
+  @@index([scanId])
+  @@index([fromNodeId])
+  @@index([toNodeId])
+  @@index([type])
+}
+
+/// Global kill switch — singleton row id='global'.
+model KillSwitch {
+  id         String   @id
+  engaged    Boolean  @default(false)
+  reason     String?
+  engagedBy  String?
+  engagedAt  DateTime?
+  updatedAt  DateTime @default(now())
 }

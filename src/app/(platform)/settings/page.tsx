@@ -21,7 +21,7 @@ export default function SettingsPage() {
 
             {/* Profile */}
             <div className="glass-card space-y-4">
-                <h3 className="text-sm font-semibold text-gray-300 flex items-center gap-2 relative z-10">
+                <h3 className="text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2 relative z-10">
                     <User className="w-4 h-4 text-brand-400" /> Profile
                 </h3>
                 <div className="grid grid-cols-2 gap-4 relative z-10">
@@ -36,7 +36,7 @@ export default function SettingsPage() {
 
             {/* Scanner Config */}
             <div className="glass-card space-y-4">
-                <h3 className="text-sm font-semibold text-gray-300 flex items-center gap-2 relative z-10">
+                <h3 className="text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2 relative z-10">
                     <Shield className="w-4 h-4 text-brand-400" /> Default Scan Settings
                 </h3>
                 <div className="grid grid-cols-3 gap-4 relative z-10">
@@ -49,17 +49,17 @@ export default function SettingsPage() {
 
             {/* Notifications */}
             <div className="glass-card space-y-4">
-                <h3 className="text-sm font-semibold text-gray-300 flex items-center gap-2 relative z-10">
+                <h3 className="text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2 relative z-10">
                     <Bell className="w-4 h-4 text-brand-400" /> Notifications
                 </h3>
                 <div className="space-y-3 relative z-10">
                     {['New Critical Vulnerability', 'Scan Completed', 'SLA Overdue', 'New Target Added'].map(notif => (
                         <label key={notif} className="flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all hover:bg-white/[0.02]"
                             style={{
-                                background: 'rgba(255,255,255,0.02)',
-                                border: '1px solid rgba(255,255,255,0.05)',
+                                background: 'var(--bg-subtle)',
+                                border: '1px solid var(--border-subtle)',
                             }}>
-                            <span className="text-sm text-gray-300">{notif}</span>
+                            <span className="text-sm text-[var(--text-primary)]">{notif}</span>
                             <input type="checkbox" defaultChecked className="rounded border-gray-600 bg-transparent text-brand-500 focus:ring-brand-500/20" />
                         </label>
                     ))}
@@ -68,7 +68,7 @@ export default function SettingsPage() {
 
             {/* Database */}
             <div className="glass-card space-y-3">
-                <h3 className="text-sm font-semibold text-gray-300 flex items-center gap-2 relative z-10">
+                <h3 className="text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2 relative z-10">
                     <Database className="w-4 h-4 text-brand-400" /> Database
                 </h3>
                 <div className="flex items-center gap-3 relative z-10">

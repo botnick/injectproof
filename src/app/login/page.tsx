@@ -31,7 +31,7 @@ export default function LoginPage() {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-[#030712] relative overflow-hidden">
+        <div className="min-h-screen flex items-center justify-center bg-[var(--bg-void)] relative overflow-hidden">
             {/* Aurora background */}
             <div className="aurora-bg" />
 
@@ -56,9 +56,9 @@ export default function LoginPage() {
                     </div>
                     <h1 className="text-4xl font-bold tracking-tight" style={{ fontFamily: 'Outfit, sans-serif' }}>
                         <span className="gradient-text">Inject</span>
-                        <span className="text-white">Proof</span>
+                        <span className="text-[var(--text-primary)]">Proof</span>
                     </h1>
-                    <p className="text-gray-600 mt-2 text-sm flex items-center justify-center gap-1.5">
+                    <p className="text-[var(--text-secondary)] mt-2 text-sm flex items-center justify-center gap-1.5">
                         <Sparkles className="w-3.5 h-3.5 text-brand-500/50" />
                         Deep SQLi Verification Engine
                     </p>
@@ -77,7 +77,7 @@ export default function LoginPage() {
                         <div>
                             <label className="input-label">Email</label>
                             <div className="relative">
-                                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
+                                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
                                 <input
                                     type="email"
                                     value={email}
@@ -93,7 +93,7 @@ export default function LoginPage() {
                         <div>
                             <label className="input-label">Password</label>
                             <div className="relative">
-                                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
+                                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
                                 <input
                                     type={showPassword ? 'text' : 'password'}
                                     value={password}
@@ -105,7 +105,7 @@ export default function LoginPage() {
                                 <button
                                     type="button"
                                     onClick={() => setShowPassword(!showPassword)}
-                                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-400 transition-colors"
+                                    className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                                 >
                                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                 </button>
@@ -133,8 +133,8 @@ export default function LoginPage() {
                         </button>
                     </form>
 
-                    <div className="mt-6 pt-5 border-t border-white/[0.05] relative z-10">
-                        <p className="text-[11px] text-gray-600 text-center">
+                    <div className="mt-6 pt-5 border-t border-[var(--border-subtle)] relative z-10">
+                        <p className="text-[11px] text-[var(--text-muted)] text-center">
                             Demo: <code className="text-brand-400/60 font-mono">admin@injectproof.local</code> / <code className="text-brand-400/60 font-mono">admin123</code>
                         </p>
                     </div>
@@ -142,18 +142,18 @@ export default function LoginPage() {
 
                 {/* Footer */}
                 <div className="text-center mt-8 space-y-2">
-                    <p className="text-[11px] text-gray-700">
+                    <p className="text-[11px] text-[var(--text-muted)]">
                         InjectProof v1.0 — Deep SQLi Verification Engine
                     </p>
-                    <div className="flex items-center justify-center gap-3 text-[10px] text-gray-800">
+                    <div className="flex items-center justify-center gap-3 text-[10px] text-[var(--text-secondary)]">
                         <span>OWASP</span>
-                        <span className="w-0.5 h-0.5 rounded-full bg-gray-800" />
+                        <span className="w-0.5 h-0.5 rounded-full bg-[var(--text-muted)]" />
                         <span>CVE</span>
-                        <span className="w-0.5 h-0.5 rounded-full bg-gray-800" />
+                        <span className="w-0.5 h-0.5 rounded-full bg-[var(--text-muted)]" />
                         <span>CWE</span>
-                        <span className="w-0.5 h-0.5 rounded-full bg-gray-800" />
+                        <span className="w-0.5 h-0.5 rounded-full bg-[var(--text-muted)]" />
                         <span>CVSS v3.1</span>
-                        <span className="w-0.5 h-0.5 rounded-full bg-gray-800" />
+                        <span className="w-0.5 h-0.5 rounded-full bg-[var(--text-muted)]" />
                         <span>NIST</span>
                     </div>
                 </div>

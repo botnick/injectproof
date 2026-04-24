@@ -6,6 +6,8 @@ import { router, protectedProcedure, pentesterProcedure } from '@/server/trpc';
 import { TRPCError } from '@trpc/server';
 import { runScan } from '@/scanner';
 import type { ScanConfig } from '@/types';
+import { getScanPool } from '@/worker/pool';
+import { assertTargetOwnership, assertScopeApproval } from '@/server/auth-middleware';
 
 export const scanRouter = router({
     /** List all scans with pagination */
@@ -77,6 +79,9 @@ export const scanRouter = router({
             authConfig: z.record(z.string(), z.unknown()).optional(),
         }))
         .mutation(async ({ ctx, input }) => {
+            // Ownership gate: caller must own the target or be security_lead+.
+            await assertTargetOwnership({ user: { id: ctx.user!.userId, role: ctx.user!.role } }, input.targetId);
+
             // Get target
             const target = await ctx.prisma.target.findUnique({
                 where: { id: input.targetId },
@@ -84,6 +89,15 @@ export const scanRouter = router({
 
             if (!target) {
                 throw new TRPCError({ code: 'NOT_FOUND', message: 'Target not found' });
+            }
+
+            // Scope gate: safetyMode=exploit requires an approved ScopeApproval
+            // with exploitAllowed=true. Probe (default) still needs an approval
+            // attached for any production/staging target.
+            const safetyMode: 'observe' | 'probe' | 'exploit' =
+                input.scanType === 'deep' ? 'exploit' : 'probe';
+            if (target.environment === 'production' || safetyMode === 'exploit') {
+                await assertScopeApproval(input.targetId, safetyMode);
             }
 
             // Determine modules based on scan type
@@ -149,9 +163,21 @@ export const scanRouter = router({
                 includePaths: target.includePaths ? JSON.parse(target.includePaths) : undefined,
             };
 
-            // Run scan asynchronously
-            runScan(scanConfig).catch(err => {
-                console.error(`[Scan ${scan.id}] Error:`, err);
+            // Enqueue through the worker pool rather than detaching. The pool
+            // maintains concurrency limits, AbortController per scan, and
+            // periodic heartbeats so orphan recovery works after server
+            // restarts.
+            const pool = getScanPool();
+            await pool.enqueue({
+                scanId: scan.id,
+                run: async (_scanId, signal) => {
+                    // The orchestrator doesn't yet consume AbortSignal end-to-end;
+                    // the cooperative cancel path in scanner/index.ts still checks
+                    // Scan.status periodically. The abort wiring is in place here
+                    // for when the orchestrator migrates to signal-first cancellation.
+                    void signal;
+                    await runScan(scanConfig);
+                },
             });
 
             return scan;
@@ -167,6 +193,10 @@ export const scanRouter = router({
             if (scan.status !== 'running' && scan.status !== 'queued') {
                 throw new TRPCError({ code: 'BAD_REQUEST', message: 'Scan is not running' });
             }
+
+            // Forceful cancel via AbortController + DB mark.
+            const pool = getScanPool();
+            await pool.abort(input, 'cancelled via API by user');
 
             await ctx.prisma.scan.update({
                 where: { id: input },

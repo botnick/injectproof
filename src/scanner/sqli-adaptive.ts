@@ -986,7 +986,9 @@ export async function detectSecondOrder(
                     };
                 }
             } catch {
-                // timeout or error — could be sleep-based
+                // Intentional: fetch timeout IS the oracle for a time-based
+                // second-order payload. Swallow the throw and interpret it as
+                // the positive signal below. Not a silent-bug catch.
                 if (so.type === 'time-trigger') {
                     return {
                         detected: true,
@@ -1044,7 +1046,12 @@ export async function scanHeaderInjection(
         });
         const baseBody = await baseRes.text();
         baselineLen = baseBody.length;
-    } catch { return results; }
+    } catch {
+        // Baseline GET failed — without a baseline we can't measure header
+        // response deltas, so abort the header-injection scan early. Caller
+        // already has a ScanLog entry from the outer phase's safeRun wrapper.
+        return results;
+    }
 
     for (const hdr of INJECTABLE_HEADERS) {
         for (const probe of HEADER_PROBES) {
@@ -1082,7 +1089,9 @@ export async function scanHeaderInjection(
                     break; // found for this header, move to next
                 }
             } catch {
-                // timeout during SLEEP probe = potential vuln
+                // Intentional: a fetch timeout during a SLEEP/WAITFOR probe
+                // IS the positive oracle signal for time-based header SQLi.
+                // Do not rethrow — the inference logic below is the handler.
                 if (probe.includes('SLEEP')) {
                     results.push({
                         vector: 'header',
@@ -1331,6 +1340,9 @@ async function sendAdaptive(config: AdaptiveConfig, payload: string): Promise<Ad
             time: Date.now() - start,
         };
     } catch {
+        // Low-level helper: a network/timeout failure returns null so the
+        // caller's adaptive loop can move on. Logging per-request here would
+        // flood ScanLog — callers log at the phase boundary.
         return null;
     }
 }

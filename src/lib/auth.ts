@@ -1,12 +1,29 @@
 // InjectProof — Authentication Library
-// JWT token creation/verification + password hashing using jose + bcryptjs
+// JWT token creation/verification + password hashing using jose + bcryptjs.
+//
+// Enterprise hardening (Phase 5.2):
+//   - JWT_SECRET must be set and ≥ 32 bytes at module load; any missing or
+//     weak secret crashes the process. No more silent fallback to a known
+//     string anyone with the repo can forge tokens against.
+//   - Per-account login throttling (see rate-limit-login.ts) writes to
+//     User.loginFailureState via a separate module to keep this file pure
+//     sign/verify logic.
 
 import { SignJWT, jwtVerify, type JWTPayload } from 'jose';
 import bcrypt from 'bcryptjs';
 
-const JWT_SECRET = new TextEncoder().encode(
-    process.env.JWT_SECRET || 'InjectProof-fallback-secret-change-me'
-);
+const rawSecret = process.env.JWT_SECRET;
+if (!rawSecret) {
+    throw new Error(
+        'JWT_SECRET is not set. Generate one with `node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'base64\'))"` and add it to .env. The legacy hardcoded fallback has been removed for security.',
+    );
+}
+if (Buffer.byteLength(rawSecret, 'utf-8') < 32) {
+    throw new Error(
+        `JWT_SECRET is too short (${Buffer.byteLength(rawSecret, 'utf-8')} bytes). Minimum is 32 bytes — tokens signed with short secrets are trivially brute-forceable.`,
+    );
+}
+const JWT_SECRET = new TextEncoder().encode(rawSecret);
 
 const TOKEN_EXPIRY = '24h';
 const SALT_ROUNDS = 12;

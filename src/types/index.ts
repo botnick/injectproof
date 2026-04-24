@@ -298,6 +298,90 @@ export interface DetectorResult {
     postExploitationEvidence?: string; // JSON/text
     // Deep SQLi exploitation data (InjectProof multi-technique extraction)
     sqliExploitData?: string; // JSON: SqliExploitResult from sqli-exploiter.ts
+    /**
+     * Provenance block proving how this finding was reached — required on every
+     * finding produced by the adaptive oracle engine. Legacy rule-based detectors
+     * may omit this until they are migrated.
+     */
+    provenance?: DetectorProvenance;
+}
+
+// ============================================================
+// ADAPTIVE ENGINE TYPES (Phase 0 — oracle + synth contracts)
+// ============================================================
+
+/**
+ * Provenance block attached to every finding produced by the oracle-driven
+ * engine. It is the auditable proof-of-work for the finding: how many probes
+ * were sent, how many replays confirmed it, what baseline was used, what
+ * oracles contributed to the verdict.
+ *
+ * Without a populated provenance, a finding is "unverified" — it may still be
+ * reported, but it must carry `status='candidate'` rather than 'confirmed'.
+ */
+export interface DetectorProvenance {
+    /** Oracles that contributed a signal: e.g. ['baseline', 'replay', 'counterfactual', 'time-persistence']. */
+    oraclesUsed: string[];
+    /** Total HTTP requests sent by the detector to arrive at this verdict. */
+    probeCount: number;
+    /** How many independent re-probes of the triggering payload produced the same anomalous verdict. */
+    replayConfirmations: number;
+    /** Size of the benign baseline sample used to learn the response manifold. */
+    baselineSampleSize: number;
+    /** Anomaly distance between the triggering response and the baseline cluster centroid. */
+    distanceScore?: number;
+    /** Flat feature vector from the oracle — e.g. {statusDelta: 1, lengthZ: 3.2, simhashHamming: 18}. */
+    features?: Record<string, number>;
+    /** DBSCAN / clustering threshold that the distance exceeded. */
+    anomalyThreshold?: number;
+    /** ISO-8601 timestamp when the verdict was produced. Used for drift tracking. */
+    generatedAt: string;
+}
+
+/**
+ * Features extracted from a single HTTP response, used by the oracle to build
+ * baseline clusters and measure distance on candidate responses.
+ */
+export interface ResponseFeatures {
+    status: number;
+    length: number;
+    wordCount: number;
+    /** 64-bit simhash of tokenized body. */
+    contentSimhash: string;
+    /** Hash of the tag-bag k-shingle representation of the DOM (HTML only). */
+    domStructureHash?: string;
+    responseTimeMs: number;
+    headerSetHash: string;
+    contentType: string;
+    /** Tokens present in this response that were absent from every baseline response. */
+    newTokens?: string[];
+}
+
+/**
+ * A single benign request/response pair retained as part of the baseline
+ * cluster. Keep only features + minimal body hashes — full bodies are
+ * discarded to avoid memory bloat during long crawls.
+ */
+export interface BaselineSample {
+    requestAt: string;
+    features: ResponseFeatures;
+    /** Opaque key identifying the benign variant that produced this sample. */
+    variant: string;
+}
+
+/**
+ * Oracle verdict for one candidate response against a baseline cluster.
+ * Consumed by detectors to decide whether to report and at what confidence.
+ */
+export interface OracleVerdict {
+    anomalous: boolean;
+    distance: number;
+    threshold: number;
+    /** Posterior probability of genuine anomaly after Bayesian update. */
+    confidence: number;
+    features: ResponseFeatures;
+    /** Human-readable one-liner explaining why it tripped. */
+    explanation: string;
 }
 
 /** Scanner progress update */

@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { router, publicProcedure, protectedProcedure } from '@/server/trpc';
 import { TRPCError } from '@trpc/server';
 import { createToken, hashPassword, comparePassword } from '@/lib/auth';
+import { checkLockout, recordFailure, recordSuccess } from '@/lib/rate-limit-login';
 
 export const authRouter = router({
     /** Login with email and password */
@@ -19,19 +20,50 @@ export const authRouter = router({
             });
 
             if (!user || !user.isActive) {
+                // Generic message — don't leak user-existence to the caller.
                 throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid email or password' });
+            }
+
+            // Throttle: reject if this account is within a lockout window.
+            const lockout = await checkLockout(user.id);
+            if (!lockout.allowed) {
+                await ctx.prisma.auditLog.create({
+                    data: {
+                        userId: user.id,
+                        action: 'login',
+                        resource: 'user',
+                        resourceId: user.id,
+                        details: JSON.stringify({
+                            email: user.email,
+                            outcome: 'blocked',
+                            reason: lockout.reason,
+                            lockoutMs: lockout.lockoutMs,
+                        }),
+                    },
+                });
+                throw new TRPCError({
+                    code: 'TOO_MANY_REQUESTS',
+                    message: `Too many failed attempts. Try again in ${Math.ceil((lockout.lockoutMs ?? 60_000) / 1000)} seconds.`,
+                });
             }
 
             const valid = await comparePassword(input.password, user.passwordHash);
             if (!valid) {
+                await recordFailure(user.id);
+                await ctx.prisma.auditLog.create({
+                    data: {
+                        userId: user.id,
+                        action: 'login',
+                        resource: 'user',
+                        resourceId: user.id,
+                        details: JSON.stringify({ email: user.email, outcome: 'failed_password' }),
+                    },
+                });
                 throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid email or password' });
             }
 
-            // Update last login
-            await ctx.prisma.user.update({
-                where: { id: user.id },
-                data: { lastLoginAt: new Date() },
-            });
+            // Success path: reset the failure counter + stamp last-login.
+            await recordSuccess(user.id);
 
             // Create audit log
             await ctx.prisma.auditLog.create({
@@ -40,7 +72,7 @@ export const authRouter = router({
                     action: 'login',
                     resource: 'user',
                     resourceId: user.id,
-                    details: JSON.stringify({ email: user.email }),
+                    details: JSON.stringify({ email: user.email, outcome: 'success' }),
                 },
             });
 
@@ -59,8 +91,45 @@ export const authRouter = router({
                     name: user.name,
                     role: user.role,
                     avatar: user.avatar,
+                    mustChangePassword: user.mustChangePassword,
                 },
             };
+        }),
+
+    /** Rotate password — required on first login for seeded/invited accounts. */
+    changePassword: protectedProcedure
+        .input(z.object({
+            currentPassword: z.string().min(1),
+            newPassword: z.string().min(12),
+        }))
+        .mutation(async ({ ctx, input }) => {
+            const user = await ctx.prisma.user.findUnique({ where: { id: ctx.user!.userId } });
+            if (!user) throw new TRPCError({ code: 'NOT_FOUND', message: 'User not found' });
+            const valid = await comparePassword(input.currentPassword, user.passwordHash);
+            if (!valid) {
+                await recordFailure(user.id);
+                throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Current password is incorrect' });
+            }
+            const newHash = await hashPassword(input.newPassword);
+            await ctx.prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    passwordHash: newHash,
+                    mustChangePassword: false,
+                    passwordChangedAt: new Date(),
+                    loginFailureState: null,
+                },
+            });
+            await ctx.prisma.auditLog.create({
+                data: {
+                    userId: user.id,
+                    action: 'login',
+                    resource: 'user',
+                    resourceId: user.id,
+                    details: JSON.stringify({ event: 'password_changed' }),
+                },
+            });
+            return { ok: true };
         }),
 
     /** Register a new user (admin only in production, open for initial setup) */

@@ -40,7 +40,7 @@ export default function VulnDetailPage({ params }: { params: Promise<{ id: strin
         <div className="space-y-6 animate-fade-in">
             {/* Header */}
             <div className="flex items-start gap-3">
-                <Link href="/vulnerabilities" className="p-2 rounded-lg hover:bg-surface-800/50 text-gray-400 hover:text-white transition-all mt-1"><ArrowLeft className="w-5 h-5" /></Link>
+                <Link href="/vulnerabilities" className="p-2 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all mt-1"><ArrowLeft className="w-5 h-5" /></Link>
                 <div className="flex-1">
                     <div className="flex items-center gap-3 mb-1 flex-wrap">
                         <span className={vuln.severity === 'critical' ? 'badge-critical' : vuln.severity === 'high' ? 'badge-high' : vuln.severity === 'medium' ? 'badge-medium' : vuln.severity === 'low' ? 'badge-low' : 'badge-info'}>{vuln.severity}</span>
@@ -48,7 +48,7 @@ export default function VulnDetailPage({ params }: { params: Promise<{ id: strin
                         {vuln.raceConditionConfirmed && <span className="badge-critical">⚡ Race Condition</span>}
                         {vuln.cloudMetadataExtracted && <span className="badge-critical">☁️ Cloud Metadata</span>}
                     </div>
-                    <h1 className="text-xl font-bold text-white">{vuln.title}</h1>
+                    <h1 className="text-xl font-bold text-[var(--text-primary)]">{vuln.title}</h1>
                     <p className="text-sm text-gray-400 font-mono mt-1">{vuln.affectedUrl}</p>
                 </div>
             </div>
@@ -57,7 +57,7 @@ export default function VulnDetailPage({ params }: { params: Promise<{ id: strin
             <div className="flex gap-2 flex-wrap">
                 {['open', 'confirmed', 'fixed', 'false_positive', 'accepted'].map(s => (
                     <button key={s} onClick={() => updateStatus.mutate({ id: vuln.id, status: s as any })}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${vuln.status === s ? 'border-brand-500 bg-brand-600/10 text-brand-300' : 'border-surface-700 text-gray-500 hover:text-gray-300 hover:border-surface-600'}`}>
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${vuln.status === s ? 'border-brand-500 bg-brand-600/10 text-[var(--accent)]' : 'border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--bg-hover)]'}`}>
                         {s.replace('_', ' ')}
                     </button>
                 ))}
@@ -75,16 +75,16 @@ export default function VulnDetailPage({ params }: { params: Promise<{ id: strin
             {/* Tab Content */}
             {activeTab === 'overview' && (
                 <div className="space-y-4">
-                    <div className="glass-card"><h3 className="text-sm font-semibold text-gray-300 mb-2">Description</h3><p className="text-sm text-gray-400 leading-relaxed">{vuln.description}</p></div>
-                    {vuln.technicalDetail && <div className="glass-card"><h3 className="text-sm font-semibold text-gray-300 mb-2">Technical Details</h3><p className="text-sm text-gray-400 leading-relaxed">{vuln.technicalDetail}</p></div>}
+                    <div className="glass-card"><h3 className="text-sm font-semibold text-[var(--text-primary)] mb-2">Description</h3><p className="text-sm text-gray-400 leading-relaxed">{vuln.description}</p></div>
+                    {vuln.technicalDetail && <div className="glass-card"><h3 className="text-sm font-semibold text-[var(--text-primary)] mb-2">Technical Details</h3><p className="text-sm text-gray-400 leading-relaxed">{vuln.technicalDetail}</p></div>}
                     {vuln.impact && <div className="glass-card border-red-600/15"><h3 className="text-sm font-semibold text-red-400 mb-2 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> Impact</h3><p className="text-sm text-gray-400">{vuln.impact}</p></div>}
 
                     {/* Quick Info Grid */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <div className="glass-card !p-3"><p className="text-xs text-gray-500 mb-1">Category</p><p className="text-sm text-gray-200 capitalize">{vuln.category}</p></div>
-                        <div className="glass-card !p-3"><p className="text-xs text-gray-500 mb-1">HTTP Method</p><p className="text-sm text-gray-200">{vuln.httpMethod}</p></div>
-                        <div className="glass-card !p-3"><p className="text-xs text-gray-500 mb-1">Parameter</p><p className="text-sm text-gray-200 font-mono">{vuln.parameter || '—'}</p></div>
-                        <div className="glass-card !p-3"><p className="text-xs text-gray-500 mb-1">Confidence</p><p className="text-sm text-gray-200 capitalize">{vuln.confidence}</p></div>
+                        <div className="glass-card !p-3"><p className="text-xs text-gray-500 mb-1">Category</p><p className="text-sm text-[var(--text-primary)] capitalize">{vuln.category}</p></div>
+                        <div className="glass-card !p-3"><p className="text-xs text-gray-500 mb-1">HTTP Method</p><p className="text-sm text-[var(--text-primary)]">{vuln.httpMethod}</p></div>
+                        <div className="glass-card !p-3"><p className="text-xs text-gray-500 mb-1">Parameter</p><p className="text-sm text-[var(--text-primary)] font-mono">{vuln.parameter || '—'}</p></div>
+                        <div className="glass-card !p-3"><p className="text-xs text-gray-500 mb-1">Confidence</p><p className="text-sm text-[var(--text-primary)] capitalize">{vuln.confidence}</p></div>
                     </div>
 
                     {/* ── Security Framework Mapping (Premium Cards) ── */}
@@ -206,18 +206,18 @@ export default function VulnDetailPage({ params }: { params: Promise<{ id: strin
             {activeTab === 'evidence' && (
                 <div className="space-y-4">
                     {vuln.payload && (
-                        <div className="glass-card"><h3 className="text-sm font-semibold text-gray-300 mb-2 flex items-center gap-2"><Code className="w-4 h-4 text-brand-400" /> Payload</h3><div className="code-block">{vuln.payload}</div></div>
+                        <div className="glass-card"><h3 className="text-sm font-semibold text-[var(--text-primary)] mb-2 flex items-center gap-2"><Code className="w-4 h-4 text-brand-400" /> Payload</h3><div className="code-block">{vuln.payload}</div></div>
                     )}
                     {vuln.requestArtifact && (
-                        <div className="glass-card"><h3 className="text-sm font-semibold text-gray-300 mb-2">HTTP Request</h3><div className="code-block text-xs max-h-64 overflow-y-auto whitespace-pre-wrap">{vuln.requestArtifact}</div></div>
+                        <div className="glass-card"><h3 className="text-sm font-semibold text-[var(--text-primary)] mb-2">HTTP Request</h3><div className="code-block text-xs max-h-64 overflow-y-auto whitespace-pre-wrap">{vuln.requestArtifact}</div></div>
                     )}
                     {vuln.responseArtifact && (
-                        <div className="glass-card"><h3 className="text-sm font-semibold text-gray-300 mb-2">HTTP Response</h3><div className="code-block text-xs max-h-64 overflow-y-auto whitespace-pre-wrap">{vuln.responseArtifact.substring(0, 5000)}{vuln.responseArtifact.length > 5000 ? '\n... (truncated)' : ''}</div></div>
+                        <div className="glass-card"><h3 className="text-sm font-semibold text-[var(--text-primary)] mb-2">HTTP Response</h3><div className="code-block text-xs max-h-64 overflow-y-auto whitespace-pre-wrap">{vuln.responseArtifact.substring(0, 5000)}{vuln.responseArtifact.length > 5000 ? '\n... (truncated)' : ''}</div></div>
                     )}
                     {reproSteps.length > 0 && (
-                        <div className="glass-card"><h3 className="text-sm font-semibold text-gray-300 mb-3">Reproduction Steps</h3>
+                        <div className="glass-card"><h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3">Reproduction Steps</h3>
                             <ol className="space-y-2">{reproSteps.map((step: string, i: number) => (
-                                <li key={i} className="flex gap-3 text-sm text-gray-400"><span className="w-6 h-6 rounded-full bg-surface-800 flex items-center justify-center text-xs text-gray-500 flex-shrink-0">{i + 1}</span><span>{step}</span></li>
+                                <li key={i} className="flex gap-3 text-sm text-gray-400"><span className="w-6 h-6 rounded-full bg-[var(--bg-hover)] flex items-center justify-center text-xs text-gray-500 flex-shrink-0">{i + 1}</span><span>{step}</span></li>
                             ))}</ol>
                         </div>
                     )}
@@ -233,7 +233,7 @@ export default function VulnDetailPage({ params }: { params: Promise<{ id: strin
                         </div>
                     )}
                     {references.length > 0 && (
-                        <div className="glass-card"><h3 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2"><Link2 className="w-4 h-4 text-brand-400" /> References</h3>
+                        <div className="glass-card"><h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3 flex items-center gap-2"><Link2 className="w-4 h-4 text-brand-400" /> References</h3>
                             <ul className="space-y-1">{references.map((ref: string, i: number) => (
                                 <li key={i}><a href={ref} target="_blank" rel="noopener" className="text-sm text-brand-400 hover:underline flex items-center gap-1"><ExternalLink className="w-3 h-3" />{ref}</a></li>
                             ))}</ul>
@@ -245,13 +245,13 @@ export default function VulnDetailPage({ params }: { params: Promise<{ id: strin
             {activeTab === 'chain' && (
                 <div className="space-y-4">
                     {chainGraph ? (
-                        <div className="glass-card"><h3 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2"><Skull className="w-4 h-4 text-red-400" /> Attack Chain Graph</h3>
+                        <div className="glass-card"><h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3 flex items-center gap-2"><Skull className="w-4 h-4 text-red-400" /> Attack Chain Graph</h3>
                             <div className="code-block text-xs">{JSON.stringify(chainGraph, null, 2)}</div>
                         </div>
                     ) : (
                         <div className="glass-card text-center py-8"><p className="text-sm text-gray-600">No attack chain data for this vulnerability</p></div>
                     )}
-                    {vuln.cachePoisoningImpact && <div className="glass-card"><h3 className="text-sm font-semibold text-gray-300 mb-2">Cache Poisoning Impact</h3><p className="text-sm text-gray-400">{vuln.cachePoisoningImpact}</p></div>}
+                    {vuln.cachePoisoningImpact && <div className="glass-card"><h3 className="text-sm font-semibold text-[var(--text-primary)] mb-2">Cache Poisoning Impact</h3><p className="text-sm text-gray-400">{vuln.cachePoisoningImpact}</p></div>}
                 </div>
             )}
             {activeTab === 'sqli_exploit' && sqliExploit && (
@@ -286,7 +286,7 @@ function SqliExploitPanel({ data }: { data: SqliExploitResult }) {
     return (
         <div className="space-y-4 animate-fade-in">
             {/* ── Server Info Banner ── */}
-            <div className="relative overflow-hidden rounded-2xl border border-red-500/20 bg-gradient-to-br from-red-950/30 via-surface-900/80 to-surface-900/80 backdrop-blur-xl p-5">
+            <div className="relative overflow-hidden rounded-2xl border border-red-500/20 bg-gradient-to-br from-red-950/30 via-[var(--bg-card)] to-[var(--bg-card)] backdrop-blur-xl p-5">
                 <div className="absolute -top-20 -right-20 w-40 h-40 bg-red-500/5 rounded-full blur-3xl" />
                 <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-violet-500/5 rounded-full blur-3xl" />
                 <div className="relative">
@@ -322,11 +322,11 @@ function SqliExploitPanel({ data }: { data: SqliExploitResult }) {
             </div>
 
             {/* ── Database Tree View ── */}
-            <div className="relative overflow-hidden rounded-2xl border border-violet-500/15 bg-gradient-to-br from-violet-950/20 via-surface-900/80 to-surface-900/80 backdrop-blur-xl">
+            <div className="relative overflow-hidden rounded-2xl border border-violet-500/15 bg-gradient-to-br from-violet-950/20 via-[var(--bg-card)] to-[var(--bg-card)] backdrop-blur-xl">
                 <div className="absolute -top-16 -right-16 w-32 h-32 bg-violet-500/5 rounded-full blur-3xl" />
                 <div className="px-5 py-3.5 border-b border-white/[0.04] flex items-center gap-2">
                     <Database className="w-4 h-4 text-violet-400" />
-                    <h3 className="text-sm font-semibold text-gray-200">Database Structure</h3>
+                    <h3 className="text-sm font-semibold text-[var(--text-primary)]">Database Structure</h3>
                     <span className="text-[10px] text-gray-600 ml-auto font-mono">{data.databases.length} db · {totalTables} tables · {totalCols} columns</span>
                 </div>
                 <div className="p-4 space-y-1 relative">
@@ -409,9 +409,9 @@ function SqliExploitPanel({ data }: { data: SqliExploitResult }) {
                                                                                     </thead>
                                                                                     <tbody>
                                                                                         {tbl.sampleRows.map((row, ri) => (
-                                                                                            <tr key={ri} className={`border-b border-white/[0.02] ${ri % 2 === 0 ? 'bg-surface-900/50' : 'bg-surface-800/30'} hover:bg-amber-500/5 transition-colors`}>
+                                                                                            <tr key={ri} className={`border-b border-white/[0.02] ${ri % 2 === 0 ? 'bg-[var(--bg-subtle)]' : 'bg-[var(--bg-hover)]/30'} hover:bg-amber-500/5 transition-colors`}>
                                                                                                 {Object.values(row).map((v, ci) => (
-                                                                                                    <td key={ci} className="px-3 py-1.5 text-gray-300 max-w-[200px] truncate">{String(v)}</td>
+                                                                                                    <td key={ci} className="px-3 py-1.5 text-[var(--text-primary)] max-w-[200px] truncate">{String(v)}</td>
                                                                                                 ))}
                                                                                             </tr>
                                                                                         ))}
@@ -436,16 +436,16 @@ function SqliExploitPanel({ data }: { data: SqliExploitResult }) {
             </div>
 
             {/* ── Exploit Step Log (Terminal Style) ── */}
-            <div className="rounded-2xl border border-green-500/15 bg-gradient-to-br from-green-950/10 via-surface-900/80 to-surface-900/80 backdrop-blur-xl overflow-hidden">
+            <div className="rounded-2xl border border-green-500/15 bg-gradient-to-br from-green-950/10 via-[var(--bg-card)] to-[var(--bg-card)] backdrop-blur-xl overflow-hidden">
                 <button
                     onClick={() => setShowLog(!showLog)}
                     className="w-full px-5 py-3.5 flex items-center gap-2 hover:bg-green-500/5 transition-all"
                 >
                     <Terminal className="w-4 h-4 text-green-400" />
-                    <h3 className="text-sm font-semibold text-gray-200">Exploitation Log</h3>
+                    <h3 className="text-sm font-semibold text-[var(--text-primary)]">Exploitation Log</h3>
                     <span className="text-[10px] text-gray-600 font-mono">{successSteps}/{data.exploitLog.length} steps successful</span>
                     <div className="ml-auto flex items-center gap-2">
-                        <div className="w-16 h-1.5 rounded-full bg-surface-700 overflow-hidden">
+                        <div className="w-16 h-1.5 rounded-full bg-[var(--bg-hover)] overflow-hidden">
                             <div className="h-full rounded-full bg-gradient-to-r from-green-500 to-emerald-400" style={{ width: `${(successSteps / Math.max(data.exploitLog.length, 1)) * 100}%` }} />
                         </div>
                         {showLog ? <ChevronDown className="w-4 h-4 text-gray-500" /> : <ChevronRight className="w-4 h-4 text-gray-500" />}
@@ -496,7 +496,7 @@ function InfoChip({ icon, label, value, color }: { icon: React.ReactNode; label:
     return (
         <div className={`rounded-xl border ${colorMap[color] || colorMap.red} p-2.5`}>
             <div className={`flex items-center gap-1.5 mb-1 ${colorMap[color]?.split(' ')[0]}`}>{icon}<span className="text-[9px] font-bold uppercase tracking-wider text-gray-500">{label}</span></div>
-            <p className="text-xs font-mono text-gray-300 truncate" title={value}>{value || '—'}</p>
+            <p className="text-xs font-mono text-[var(--text-primary)] truncate" title={value}>{value || '—'}</p>
         </div>
     );
 }
@@ -510,7 +510,7 @@ function StatCard({ label, value, icon, color }: { label: string; value: number;
     };
     const c = colorMap[color] || colorMap.violet;
     return (
-        <div className={`rounded-xl border ${c} bg-gradient-to-br via-surface-900/80 to-surface-900/80 backdrop-blur-xl p-3 text-center`}>
+        <div className={`rounded-xl border ${c} bg-gradient-to-br via-[var(--bg-card)] to-[var(--bg-card)] backdrop-blur-xl p-3 text-center`}>
             <div className={`flex items-center justify-center gap-1.5 mb-1 ${c.split(' ')[0]}`}>{icon}</div>
             <p className={`text-2xl font-bold tabular-nums ${c.split(' ')[0]}`}>{value}</p>
             <p className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">{label}</p>

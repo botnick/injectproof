@@ -4,7 +4,7 @@
 import { use } from 'react';
 import { trpc } from '@/trpc/client';
 import Link from 'next/link';
-import { ArrowLeft, Radar, Globe, Shield, Clock, Bug, Play } from 'lucide-react';
+import { ArrowLeft, Radar, Globe, Shield, Clock, Bug, Play, Pencil } from 'lucide-react';
 
 export default function TargetDetailPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = use(params);
@@ -16,40 +16,43 @@ export default function TargetDetailPage({ params }: { params: Promise<{ id: str
     return (
         <div className="space-y-6 animate-fade-in">
             <div className="flex items-center gap-3">
-                <Link href="/targets" className="p-2 rounded-lg hover:bg-surface-800/50 text-gray-400 hover:text-white transition-all"><ArrowLeft className="w-5 h-5" /></Link>
+                <Link href="/targets" className="p-2 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all"><ArrowLeft className="w-5 h-5" /></Link>
                 <div className="flex-1">
                     <h1 className="page-title">{target.name}</h1>
                     <p className="text-sm text-gray-400 font-mono">{target.baseUrl}</p>
                 </div>
-                <Link href={`/scans/new?targetId=${target.id}`} className="btn-primary flex items-center gap-2"><Play className="w-4 h-4" /> Start Scan</Link>
+                <div className="flex gap-2">
+                    <Link href={`/targets/${target.id}/edit`} className="btn-secondary flex items-center gap-2"><Pencil className="w-4 h-4" /> Edit</Link>
+                    <Link href={`/scans/new?targetId=${target.id}`} className="btn-primary flex items-center gap-2"><Play className="w-4 h-4" /> Start Scan</Link>
+                </div>
             </div>
 
             {/* Info Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="glass-card">
                     <p className="text-xs text-gray-500 mb-1">Environment</p>
-                    <p className="text-sm font-medium capitalize text-gray-200">{target.environment}</p>
+                    <p className="text-sm font-medium capitalize text-[var(--text-primary)]">{target.environment}</p>
                 </div>
                 <div className="glass-card">
                     <p className="text-xs text-gray-500 mb-1">Criticality</p>
-                    <p className="text-sm font-medium capitalize text-gray-200">{target.criticality}</p>
+                    <p className="text-sm font-medium capitalize text-[var(--text-primary)]">{target.criticality}</p>
                 </div>
                 <div className="glass-card">
                     <p className="text-xs text-gray-500 mb-1">Total Scans / Vulns</p>
-                    <p className="text-sm font-medium text-gray-200">{target._count?.scans || 0} scans / {target._count?.vulnerabilities || 0} vulns</p>
+                    <p className="text-sm font-medium text-[var(--text-primary)]">{target._count?.scans || 0} scans / {target._count?.vulnerabilities || 0} vulns</p>
                 </div>
             </div>
 
             {target.description && (
                 <div className="glass-card">
                     <p className="text-xs text-gray-500 mb-1">Description</p>
-                    <p className="text-sm text-gray-300">{target.description}</p>
+                    <p className="text-sm text-[var(--text-primary)]">{target.description}</p>
                 </div>
             )}
 
             {/* Scan History */}
             <div className="glass-card">
-                <h3 className="text-sm font-semibold text-gray-300 mb-4 flex items-center gap-2"><Clock className="w-4 h-4 text-brand-400" /> Scan History</h3>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-4 flex items-center gap-2"><Clock className="w-4 h-4 text-brand-400" /> Scan History</h3>
                 {target.scans && target.scans.length > 0 ? (
                     <table className="data-table">
                         <thead><tr><th>Type</th><th>Status</th><th>Started By</th><th>Date</th><th></th></tr></thead>

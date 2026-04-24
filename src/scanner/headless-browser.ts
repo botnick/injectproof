@@ -225,9 +225,9 @@ async function waitForCdpReady(port: number, timeout: number): Promise<string> {
 /**
  * Managed headless browser with 3-tier priority:
  *
- * 1. 🐼 **Lightpanda binary** (Linux) — fastest, lightest
- * 2. 🌐 **Remote CDP endpoint** — Lightpanda Docker / Browserless.io
- * 3. 🖥️ **OS browser** (last resort) — Edge (Win), Chrome (Linux/Mac)
+ *   1. Lightpanda binary (Linux) — fastest, lightest
+ *   2. Remote CDP endpoint — Lightpanda Docker / Browserless.io
+ *   3. OS browser (last resort) — Edge (Windows), Chrome (Linux/Mac)
  *
  * @example
  * ```ts
@@ -270,10 +270,10 @@ export class HeadlessBrowser {
 
     /**
      * Connect to a headless browser using 4-tier priority:
-     * 1. 🐼 Lightpanda binary (Linux) — fastest, lightest
-     * 2. 🌐 Remote CDP endpoint — if configured
-     * 3. 📦 Bundled Chromium (puppeteer.launch) — works everywhere
-     * 4. 🖥️ OS browser (last resort) — Edge (Win), Chrome (Linux/Mac)
+     *   1. Lightpanda binary (Linux) — fastest, lightest
+     *   2. Remote CDP endpoint — if configured
+     *   3. Bundled Chromium (puppeteer.launch) — works everywhere
+     *   4. OS browser (last resort) — Edge (Windows), Chrome (Linux/Mac)
      */
     async connect(): Promise<void> {
         // ── Tier 1: Lightpanda local binary (Linux only) ──

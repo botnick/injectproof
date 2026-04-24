@@ -12,25 +12,31 @@ import { runReconScan, type ReconConfig } from '@/scanner/recon-scanner';
 import { analyzePageIntelligence, type PageIntelligence } from '@/scanner/intelligent-scanner';
 import * as cheerio from 'cheerio';
 import prisma from '@/lib/prisma';
+import { addScanLog } from '@/scanner/engine/log';
+import { safeRun } from '@/scanner/engine/safe-run';
+import { ScanAgentBus } from '@/scanner/engine/bus/agent-bus';
+import { getLearningStore } from '@/scanner/engine/learning/cross-scan-store';
+import { evaluateRules, rulesSummary, type ReactiveContext } from '@/scanner/engine/orchestrate/reactive-rules';
 
 export type ProgressCallback = (progress: ScanProgress) => void;
 
 /** Persist live progress status to DB for real-time UI updates */
 async function persistProgress(scanId: string, progress: ScanProgress): Promise<void> {
-    try {
-        await prisma.scan.update({
-            where: { id: scanId },
-            data: {
-                progress: progress.progress,
-                currentPhase: progress.phase,
-                currentModule: progress.currentModule || null,
-                currentUrl: progress.currentUrl || null,
-                statusMessage: progress.message || null,
-            },
-        });
-    } catch {
-        // Silently fail — don't interrupt scan for progress tracking
-    }
+    await safeRun(
+        { scanId, phase: progress.phase, module: 'orchestrator', operation: 'persistProgress' },
+        async () => {
+            await prisma.scan.update({
+                where: { id: scanId },
+                data: {
+                    progress: progress.progress,
+                    currentPhase: progress.phase,
+                    currentModule: progress.currentModule || null,
+                    currentUrl: progress.currentUrl || null,
+                    statusMessage: progress.message || null,
+                },
+            });
+        },
+    );
 }
 
 /**
@@ -56,6 +62,32 @@ export async function runScan(
         });
 
         await addScanLog(config.scanId, 'info', 'orchestrator', `Scan started for target: ${config.baseUrl}`);
+
+        // Enterprise: initialize bus + learning store + reactive context
+        const bus = new ScanAgentBus(config.scanId);
+        const learning = getLearningStore();
+        const reactiveCtx: ReactiveContext = {
+            baseUrl: config.baseUrl,
+            scanId: config.scanId,
+            wafMode: false,
+            techStack: learning.getTechStack(config.baseUrl),
+            confirmedDbms: learning.getDbms(config.baseUrl),
+            confirmedAdminPanels: [],
+            pendingTasks: [],
+        };
+
+        // Wire bus → reactive rules: findings auto-trigger follow-up tasks
+        const _unsubBus = bus.onAny(event => {
+            const newTasks = evaluateRules(event, reactiveCtx);
+            reactiveCtx.pendingTasks.push(...newTasks);
+            // Persist learning side-effects
+            if (event.type === 'waf:detected') learning.recordWaf(config.baseUrl, (event as any).vendor);
+            if (event.type === 'sqli:confirmed') learning.recordDbms(config.baseUrl, (event as any).dbms);
+            if (event.type === 'tech:detected') learning.recordTech(config.baseUrl, (event as any).tech);
+        });
+
+        await addScanLog(config.scanId, 'info', 'orchestrator',
+            `[ENTERPRISE] Prior learning: ${learning.summary(config.baseUrl)} | Rules: ${rulesSummary()}`);
 
         // ========================================
         // PHASE 1: CRAWLING
@@ -177,7 +209,7 @@ export async function runScan(
             urlsDiscovered: crawlResult.discoveredUrls.length,
             urlsScanned: 0,
             vulnsFound: 0,
-            message: '🧠 Intelligent Analysis — classifying forms, discovering AJAX endpoints, mapping attack surface...',
+            message: '[INTEL] Intelligent Analysis — classifying forms, discovering AJAX endpoints, mapping attack surface...',
             currentModule: 'Intelligent Scanner',
         };
         onProgress?.(intelligenceProgress);
@@ -241,26 +273,26 @@ export async function runScan(
                 // Log high-risk pages and attack plans
                 if (intel.riskScore >= 30) {
                     await addScanLog(config.scanId, 'warn', 'intelligent-scanner',
-                        `⚡ High-risk page [${intel.riskScore}/100]: ${ep.url} | Type: ${intel.pageType} | Forms: ${intel.forms.map(f => `${f.classification}(${f.attackPriority})`).join(', ')}`);
+                        `[HIGH-RISK] page [${intel.riskScore}/100]: ${ep.url} | Type: ${intel.pageType} | Forms: ${intel.forms.map(f => `${f.classification}(${f.attackPriority})`).join(', ')}`);
                 }
 
                 if (intel.attackPlan.length > 0) {
                     await addScanLog(config.scanId, 'info', 'intelligent-scanner',
-                        `📋 Attack plan for ${ep.url}: ${intel.attackPlan.slice(0, 3).map(s => `[P${s.priority}] ${s.technique} → ${s.params.join(',')}`).join(' | ')}`);
+                        `[PLAN] Attack plan for ${ep.url}: ${intel.attackPlan.slice(0, 3).map(s => `[P${s.priority}] ${s.technique} -> ${s.params.join(',')}`).join(' | ')}`);
                 }
 
                 // Log form classifications
                 for (const form of intel.forms) {
                     if (form.attackPriority === 'critical' || form.attackPriority === 'high') {
                         await addScanLog(config.scanId, 'warn', 'intelligent-scanner',
-                            `🎯 ${form.classification.toUpperCase()} form at ${form.action} [${form.attackPriority}] — ${form.estimatedPurpose}`);
+                            `[FORM] ${form.classification.toUpperCase()} at ${form.action} [${form.attackPriority}] — ${form.estimatedPurpose}`);
                     }
                 }
 
                 // Log comments (potential info leaks)
                 if (intel.comments.length > 0) {
                     await addScanLog(config.scanId, 'info', 'intelligent-scanner',
-                        `💬 HTML comments found on ${ep.url}: ${intel.comments.slice(0, 3).join(' | ')}`);
+                        `[COMMENT] HTML comments found on ${ep.url}: ${intel.comments.slice(0, 3).join(' | ')}`);
                 }
             } catch {
                 // Best-effort analysis
@@ -268,7 +300,7 @@ export async function runScan(
         }
 
         await addScanLog(config.scanId, 'info', 'intelligent-scanner',
-            `🧠 Intelligence complete: ${totalFormsClassified} forms classified, ${totalAjaxDiscovered} AJAX endpoints discovered, ${totalInteractiveElements} interactive elements mapped`);
+            `[INTEL] complete: ${totalFormsClassified} forms classified, ${totalAjaxDiscovered} AJAX endpoints discovered, ${totalInteractiveElements} interactive elements mapped`);
 
         // Re-deduplicate after AJAX endpoint injection
         const seenUrlsV2 = new Set<string>();
@@ -324,6 +356,7 @@ export async function runScan(
             userAgent: config.userAgent || 'InjectProof-Scanner/1.0',
             customHeaders: config.customHeaders,
             authHeaders: buildAuthHeaders(config),
+            scanId: config.scanId,
         };
 
         let urlsScanned = 0;
@@ -372,6 +405,14 @@ export async function runScan(
                             await saveVulnerability(config, result, detector.id);
                             totalVulns++;
                             payloadCount++;
+
+                            // Emit confirmed findings to bus for reactive escalation
+                            if ((result as any).type === 'sqli' && result.confidence === 'high') {
+                                bus.emit({ type: 'sqli:confirmed', url: endpoint.url, param: (result as any).param ?? '', dbms: (result as any).dbms ?? 'unknown', technique: (result as any).technique ?? 'unknown', severity: 'high' });
+                                if ((result as any).payload) learning.recordEffectivePayload(config.baseUrl, (result as any).context ?? 'generic', (result as any).payload);
+                            } else if ((result as any).type === 'sqli') {
+                                bus.emit({ type: 'sqli:candidate', url: endpoint.url, param: (result as any).param ?? '', technique: (result as any).technique ?? 'unknown', confidence: result.confidence === 'medium' ? 0.6 : 0.4 });
+                            }
                         }
                     }
                 } catch (error) {
@@ -398,7 +439,7 @@ export async function runScan(
             urlsDiscovered: crawlResult.discoveredUrls.length,
             urlsScanned,
             vulnsFound: totalVulns,
-            message: '🔍 Reconnaissance — discovering admin panels, backup files, fingerprinting technology...',
+            message: '[RECON] Reconnaissance — discovering admin panels, backup files, fingerprinting technology...',
             currentModule: 'Recon Scanner',
         };
         onProgress?.(reconProgress);
@@ -433,17 +474,28 @@ export async function runScan(
 
             if (reconResult.adminPanels.length > 0) {
                 await addScanLog(config.scanId, 'warn', 'recon',
-                    `🚪 Admin panels found: ${reconResult.adminPanels.filter(p => p.confidence === 'confirmed').map(p => p.url).join(', ')}`);
+                    `[ADMIN-PANEL] found: ${reconResult.adminPanels.filter(p => p.confidence === 'confirmed').map(p => p.url).join(', ')}`);
             }
 
             if (reconResult.backupFiles.length > 0) {
                 await addScanLog(config.scanId, 'warn', 'recon',
-                    `📦 Exposed backup files: ${reconResult.backupFiles.map(f => f.url).join(', ')}`);
+                    `[BACKUP] Exposed backup files: ${reconResult.backupFiles.map(f => f.url).join(', ')}`);
             }
 
             if (reconResult.technologies.length > 0) {
                 await addScanLog(config.scanId, 'info', 'recon',
-                    `🔧 Technologies: ${reconResult.technologies.map(t => `${t.name}${t.version ? ` v${t.version}` : ''}`).join(', ')}`);
+                    `[TECH] Technologies: ${reconResult.technologies.map(t => `${t.name}${t.version ? ` v${t.version}` : ''}`).join(', ')}`);
+            }
+
+            // Emit admin panel findings to bus for reactive processing
+            for (const panel of ((reconResult as any).adminPanels ?? [])) {
+                bus.emit({ type: 'admin:panel', url: panel.url, confidence: panel.confidence ?? 0.8, statusCode: panel.statusCode ?? 200 });
+            }
+            for (const tech of ((reconResult as any).technologies ?? [])) {
+                bus.emit({ type: 'tech:detected', tech: tech.name ?? tech, version: tech.version, category: tech.category ?? 'web' });
+            }
+            if ((reconResult as any).wafVendor) {
+                bus.emit({ type: 'waf:detected', vendor: (reconResult as any).wafVendor, confidence: 0.9, url: config.baseUrl });
             }
         } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
@@ -461,7 +513,7 @@ export async function runScan(
                 urlsDiscovered: crawlResult.discoveredUrls.length,
                 urlsScanned,
                 vulnsFound: totalVulns,
-                message: '🧠 Smart Form SQLi Engine — auto-discovering and attacking forms...',
+                message: '[SMART-FORM] Smart Form SQLi Engine — auto-discovering and attacking forms...',
                 currentModule: 'Smart Form SQLmap',
             };
             onProgress?.(smartFormProgress);
@@ -512,7 +564,7 @@ export async function runScan(
                     }
 
                     if (smartResult.authBypassed) {
-                        await addScanLog(config.scanId, 'warn', 'smart-form-sqli', '🔓 AUTH BYPASS DETECTED — login form is vulnerable to SQLi authentication bypass');
+                        await addScanLog(config.scanId, 'warn', 'smart-form-sqli', '[AUTH-BYPASS] login form is vulnerable to SQLi authentication bypass');
                     }
 
                     if (smartResult.exploitData) {
@@ -520,7 +572,7 @@ export async function runScan(
                             config.scanId,
                             'warn',
                             'smart-form-sqli',
-                            `🗄️ Database dumped: ${smartResult.exploitData.dbms} | DB: ${smartResult.exploitData.currentDatabase} | ${smartResult.exploitData.databases.length} databases extracted`,
+                            `[DB-DUMP] ${smartResult.exploitData.dbms} | DB: ${smartResult.exploitData.currentDatabase} | ${smartResult.exploitData.databases.length} databases extracted`,
                         );
                     }
                 } catch (err) {
@@ -607,6 +659,14 @@ export async function runScan(
             vulnsFound: totalVulns,
             message: `Scan completed. Found ${totalVulns} vulnerabilities.`,
         });
+
+        // Enterprise bus cleanup + stats
+        const busStats = bus.snapshot();
+        if (busStats.totalEmitted > 0) {
+            await addScanLog(config.scanId, 'info', 'orchestrator',
+                `[ENTERPRISE] Bus: ${busStats.totalEmitted} events | Reactive tasks: ${reactiveCtx.pendingTasks.length}`);
+        }
+        _unsubBus();
 
     } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
@@ -704,31 +764,16 @@ async function saveVulnerability(
             references: result.references ? JSON.stringify(result.references) : null,
             detectorModule,
             sqliExploitData: result.sqliExploitData || null,
+            // Adaptive-engine provenance + validation level. Findings from
+            // legacy detectors that have no provenance land as 'candidate';
+            // oracle-driven ones that passed full validation land as
+            // 'confirmed'. Automation (alerting, SLA counts) should filter on
+            // validationLevel='confirmed' only.
+            provenance: result.provenance ? JSON.stringify(result.provenance) : null,
+            validationLevel:
+                result.provenance && result.confidence === 'high' ? 'confirmed' : 'candidate',
             status: 'open',
         },
     });
 }
 
-/** Add a log entry for a scan */
-async function addScanLog(
-    scanId: string,
-    level: string,
-    module: string,
-    message: string,
-    details?: Record<string, unknown>,
-): Promise<void> {
-    try {
-        await prisma.scanLog.create({
-            data: {
-                scanId,
-                level,
-                module,
-                message,
-                details: details ? JSON.stringify(details) : null,
-            },
-        });
-    } catch {
-        // Silently fail on log errors to not interrupt the scan
-        console.error(`[ScanLog] Failed to write log: ${message}`);
-    }
-}
