@@ -7,6 +7,7 @@ import { crawlTarget, type CrawlConfig, type CrawlResult } from '@/scanner/crawl
 import { crawlTargetHeadless } from '@/scanner/headless-crawler';
 import { isCdpAvailable } from '@/scanner/headless-browser';
 import { ALL_DETECTORS } from '@/scanner/detectors';
+import { ADVANCED_DETECTORS } from '@/scanner/advanced-detectors';
 import { runSmartFormSqliScan, type SmartFormScanConfig } from '@/scanner/smart-form-sqlmap';
 import { runReconScan, type ReconConfig } from '@/scanner/recon-scanner';
 import { analyzePageIntelligence, type PageIntelligence } from '@/scanner/intelligent-scanner';
@@ -17,6 +18,15 @@ import { safeRun } from '@/scanner/engine/safe-run';
 import { ScanAgentBus } from '@/scanner/engine/bus/agent-bus';
 import { getLearningStore } from '@/scanner/engine/learning/cross-scan-store';
 import { evaluateRules, rulesSummary, type ReactiveContext } from '@/scanner/engine/orchestrate/reactive-rules';
+import { shouldProceed, KillSwitchEngagedError } from '@/scanner/engine/safety/kill-switch';
+import { budgetTrackerFor, releaseBudgetTracker, BudgetExceededError } from '@/scanner/engine/safety/request-budget';
+import { enumerateSubdomains, huntCloudBuckets, scanForLeakedSecrets, discoverShadowApis } from '@/scanner/easm';
+import { detectContainerExposure } from '@/scanner/cloud-exploit';
+import { runContextAwareFuzzing, detectBusinessLogicFlaws } from '@/scanner/cognitive-exploit';
+import { extractDatabaseSchema } from '@/scanner/post-exploit';
+import { computeScanDiff } from '@/lib/scan-diff';
+import { dispatch } from '@/lib/notifiers';
+import type { NotificationTarget } from '@/lib/notifiers';
 
 export type ProgressCallback = (progress: ScanProgress) => void;
 
@@ -62,6 +72,13 @@ export async function runScan(
         });
 
         await addScanLog(config.scanId, 'info', 'orchestrator', `Scan started for target: ${config.baseUrl}`);
+
+        // Initialize per-scan request budget (requests × bytes × wall-clock)
+        const budget = budgetTrackerFor(config.scanId, {
+            maxRequests: Math.max(config.maxUrls, 100) * 80,
+            maxBytes: 512 * 1024 * 1024,   // 512 MB
+            maxWallMs: 6 * 60 * 60 * 1000, // 6 hours
+        });
 
         // Enterprise: initialize bus + learning store + reactive context
         const bus = new ScanAgentBus(config.scanId);
@@ -379,6 +396,25 @@ export async function runScan(
                 break;
             }
 
+            // Kill switch — admin can halt all scans within 1s from DB
+            try {
+                await shouldProceed();
+            } catch (e) {
+                if (e instanceof KillSwitchEngagedError) {
+                    await addScanLog(config.scanId, 'warn', 'orchestrator', `[KILL-SWITCH] scan halted: ${e.message}`);
+                    break;
+                }
+                throw e;
+            }
+
+            // Budget guard — stops detection when request/byte/wall limits hit
+            const budgetState = budget.exhausted();
+            if (budgetState.exhausted) {
+                await addScanLog(config.scanId, 'warn', 'orchestrator',
+                    `[BUDGET] scan budget exhausted (${budgetState.limiting}) — stopping detection early`);
+                break;
+            }
+
             urlsScanned++;
             const scanProgress = 25 + Math.floor((urlsScanned / totalEndpoints) * 60);
 
@@ -413,6 +449,30 @@ export async function runScan(
                             } else if ((result as any).type === 'sqli') {
                                 bus.emit({ type: 'sqli:candidate', url: endpoint.url, param: (result as any).param ?? '', technique: (result as any).technique ?? 'unknown', confidence: result.confidence === 'medium' ? 0.6 : 0.4 });
                             }
+
+                            // Post-exploitation: extract DB schema on confirmed high-confidence SQLi (deep scans only)
+                            const isDeep = config.scanType === 'deep';
+                            if (isDeep && result.category === 'sqli' && result.confidence === 'high' && result.parameter) {
+                                const dbmsMap: Record<string, 'mysql' | 'postgres' | 'sqlite' | 'mssql'> = {
+                                    mysql: 'mysql', mariadb: 'mysql', postgresql: 'postgres', mssql: 'mssql', sqlite: 'sqlite',
+                                };
+                                const dbmsHint = dbmsMap[reactiveCtx.confirmedDbms ?? ''] ?? 'mysql';
+                                const postExploitConfig = {
+                                    baseUrl: config.baseUrl,
+                                    requestTimeout: config.requestTimeout,
+                                    userAgent: config.userAgent || 'InjectProof-Scanner/1.0',
+                                    authHeaders: buildAuthHeaders(config),
+                                };
+                                const schemaFindings = await extractDatabaseSchema(
+                                    endpoint, result.parameter, dbmsHint, postExploitConfig,
+                                ).catch(() => []);
+                                for (const sf of schemaFindings) {
+                                    if (sf.found) {
+                                        await saveVulnerability(config, sf, 'post_exploit_schema');
+                                        totalVulns++;
+                                    }
+                                }
+                            }
                         }
                     }
                 } catch (error) {
@@ -427,6 +487,63 @@ export async function runScan(
                 where: { id: config.scanId },
                 data: { progress: scanProgress, totalPayloads: payloadCount },
             });
+        }
+
+        // ========================================
+        // PHASE 2.5: ADVANCED DETECTORS (deep scans only)
+        // Race conditions, HTTP desync, prototype pollution, cloud metadata SSRF,
+        // context-aware fuzzing, business logic flaws, container exposure
+        // ========================================
+        if (config.scanType === 'deep') {
+            const advancedProgress: ScanProgress = {
+                scanId: config.scanId,
+                phase: 'scanning',
+                progress: 82,
+                urlsDiscovered: crawlResult.discoveredUrls.length,
+                urlsScanned,
+                vulnsFound: totalVulns,
+                message: '[ADVANCED] Running advanced red-team detectors...',
+                currentModule: 'Advanced Detectors',
+            };
+            onProgress?.(advancedProgress);
+            await persistProgress(config.scanId, advancedProgress);
+            await addScanLog(config.scanId, 'info', 'advanced', 'Starting advanced detectors: race condition, HTTP desync, prototype pollution, cloud metadata SSRF');
+
+            const cloudConfig = {
+                baseUrl: config.baseUrl,
+                requestTimeout: config.requestTimeout,
+                userAgent: config.userAgent || 'InjectProof-Scanner/1.0',
+                authHeaders: buildAuthHeaders(config),
+            };
+            const cogConfig = {
+                baseUrl: config.baseUrl,
+                requestTimeout: config.requestTimeout,
+                userAgent: config.userAgent || 'InjectProof-Scanner/1.0',
+                authHeaders: buildAuthHeaders(config),
+            };
+
+            for (const ep of finalEndpoints.slice(0, 20)) {
+                for (const advDet of ADVANCED_DETECTORS) {
+                    const advFindings = await advDet.detect(ep, detectorConfig).catch(() => []);
+                    for (const f of advFindings) {
+                        if (f.found) { await saveVulnerability(config, f, advDet.id); totalVulns++; }
+                    }
+                }
+                const [ctxFindings, bizFindings] = await Promise.all([
+                    runContextAwareFuzzing(ep, cogConfig).catch(() => []),
+                    detectBusinessLogicFlaws(ep, cogConfig).catch(() => []),
+                ]);
+                for (const f of [...ctxFindings, ...bizFindings]) {
+                    if (f.found) { await saveVulnerability(config, f, 'cognitive'); totalVulns++; }
+                }
+            }
+
+            const containerFindings = await detectContainerExposure(cloudConfig).catch(() => []);
+            for (const f of containerFindings) {
+                if (f.found) { await saveVulnerability(config, f, 'cloud_exploit'); totalVulns++; }
+            }
+
+            await addScanLog(config.scanId, 'info', 'advanced', 'Advanced detectors completed');
         }
 
         // ========================================
@@ -500,6 +617,61 @@ export async function runScan(
         } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
             await addScanLog(config.scanId, 'error', 'recon', `Recon error: ${errMsg}`);
+        }
+
+        // ========================================
+        // PHASE 2.8: EASM — External Attack Surface
+        // Subdomain enum, cloud bucket hunting, leaked secrets, shadow API discovery
+        // ========================================
+        await addScanLog(config.scanId, 'info', 'easm', 'Starting EASM: subdomains, cloud buckets, leaked secrets, shadow APIs');
+        try {
+            const easmDomain = new URL(config.baseUrl).hostname;
+            const easmConfig = {
+                baseUrl: config.baseUrl,
+                domain: easmDomain,
+                requestTimeout: config.requestTimeout,
+                userAgent: config.userAgent || 'InjectProof-Scanner/1.0',
+                scanId: config.scanId,
+            };
+
+            const [subdomains, cloudBucketFindings, shadowApiFindings] = await Promise.all([
+                enumerateSubdomains(easmConfig).catch(() => []),
+                huntCloudBuckets(easmConfig).catch(() => []),
+                discoverShadowApis(easmConfig).catch(() => []),
+            ]);
+
+            if (subdomains.length > 0) {
+                await addScanLog(config.scanId, 'info', 'easm',
+                    `[EASM] Subdomains discovered: ${subdomains.slice(0, 15).join(', ')}${subdomains.length > 15 ? ` (+${subdomains.length - 15} more)` : ''}`);
+            }
+
+            for (const f of [...cloudBucketFindings, ...shadowApiFindings]) {
+                if (f.found) {
+                    await saveVulnerability(config, f, 'easm');
+                    totalVulns++;
+                }
+            }
+
+            // Scan JS files for leaked secrets
+            const jsUrls = crawlResult.endpoints.filter(ep => /\.js(\?|$)/.test(ep.url)).map(ep => ep.url);
+            if (jsUrls.length > 0) {
+                const secretFindings = await scanForLeakedSecrets(jsUrls, easmConfig).catch(() => []);
+                for (const f of secretFindings) {
+                    if (f.found) {
+                        await saveVulnerability(config, f, 'easm_secrets');
+                        totalVulns++;
+                    }
+                }
+            }
+
+            await addScanLog(config.scanId, 'info', 'easm',
+                `[EASM] complete: ${subdomains.length} subdomains, ` +
+                `${cloudBucketFindings.filter(f => f.found).length} cloud buckets, ` +
+                `${shadowApiFindings.filter(f => f.found).length} shadow APIs, ` +
+                `${jsUrls.length} JS files scanned for secrets`);
+        } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            await addScanLog(config.scanId, 'error', 'easm', `EASM error: ${errMsg}`);
         }
 
         // ========================================
@@ -668,6 +840,54 @@ export async function runScan(
         }
         _unsubBus();
 
+        // Scan diff — compare this scan's findings against the previous scan of the same target
+        try {
+            const diff = await computeScanDiff(config.scanId);
+            if (diff.previousScanId) {
+                await addScanLog(config.scanId, 'info', 'scan-diff',
+                    `[DIFF] vs ${diff.previousScanId.slice(0, 8)}: +${diff.newFindings.length} new, -${diff.fixedFindings.length} fixed, ` +
+                    `${diff.stillOpen.length} still open, ${diff.regressions.length} regressions | delta=${diff.summary.delta > 0 ? '+' : ''}${diff.summary.delta}`);
+            }
+        } catch {
+            // Non-critical — no previous scan or query failure
+        }
+
+        // Outbound notifications — fan out to all active notification configs
+        try {
+            const notifRows = await prisma.notificationConfig.findMany({ where: { isActive: true } });
+            const topSeverity = (severityCounts.critical || 0) > 0 ? 'critical'
+                : (severityCounts.high || 0) > 0 ? 'high'
+                : (severityCounts.medium || 0) > 0 ? 'medium' : 'info';
+            for (const nc of notifRows) {
+                const events: string[] = JSON.parse(nc.events ?? '[]');
+                if (!events.includes('scan_completed') && !events.includes('all')) continue;
+                const channelCfg: Record<string, string> = JSON.parse(nc.config ?? '{}');
+                const webhookEndpoint = channelCfg.webhook_url ?? channelCfg.webhook ?? '';
+                if (!webhookEndpoint) continue;
+                const target: NotificationTarget = {
+                    channel: nc.channel as NotificationTarget['channel'],
+                    endpoint: webhookEndpoint,
+                    signingSecret: channelCfg.signing_secret,
+                };
+                await dispatch(target, {
+                    title: `InjectProof scan completed: ${config.baseUrl}`,
+                    body: `Found ${totalVulns} vulnerabilities in ${duration}s.`,
+                    severity: topSeverity as any,
+                    context: {
+                        url: config.baseUrl,
+                        scanId: config.scanId,
+                        total: totalVulns,
+                        critical: severityCounts.critical || 0,
+                        high: severityCounts.high || 0,
+                        medium: severityCounts.medium || 0,
+                        duration: `${duration}s`,
+                    },
+                }).catch(() => {}); // non-critical
+            }
+        } catch {
+            // Notification failure is non-critical
+        }
+
     } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
         errors.push(`Fatal error: ${errMsg}`);
@@ -696,6 +916,8 @@ export async function runScan(
             vulnsFound: totalVulns,
             message: `Scan failed: ${errMsg}`,
         });
+    } finally {
+        releaseBudgetTracker(config.scanId);
     }
 
     return { vulnCount: totalVulns, errors };

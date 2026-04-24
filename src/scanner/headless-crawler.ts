@@ -8,6 +8,8 @@ import type { CrawledEndpoint, DiscoveredParam, DiscoveredForm, FormField } from
 import { normalizeUrl, isSameOrigin, parseUrl } from '@/lib/utils';
 import { HeadlessBrowser, HeadlessBrowserError, type HeadlessBrowserConfig } from './headless-browser';
 import type { CrawlConfig, CrawlResult } from './crawler';
+import { MarkovUrlModel } from '@/scanner/engine/explore/markov';
+import { FrontierQueue, type ObservationState } from '@/scanner/engine/explore/frontier';
 
 // ============================================================
 // Extended result with headless-specific data
@@ -61,8 +63,22 @@ export async function crawlTargetHeadless(
     const screenshots: Record<string, string> = {};
     let jsRenderedPages = 0;
 
+    // Markov URL model — learns path n-grams from observed URLs to generate
+    // novel candidates the BFS would never reach via link following alone.
+    const markov = new MarkovUrlModel();
+
+    // FrontierQueue — priority BFS ordered by expected information gain.
+    const frontierState: ObservationState = {
+        visited,
+        formBearing: new Set<string>(),
+        findingUrls: new Set<string>(),
+        avgLatencyMs: 200,
+    };
+    const frontier = new FrontierQueue(frontierState);
+
     // Seed the queue
     queue.push({ url: normalizeUrl(config.baseUrl), depth: 0, source: 'seed' });
+    frontier.enqueue({ url: normalizeUrl(config.baseUrl), method: 'GET', source: 'seed', depth: 0 });
 
     // Rate limiter delay
     const delay = Math.max(100, Math.floor(1000 / config.rateLimit));
@@ -179,11 +195,15 @@ export async function crawlTargetHeadless(
                     }
                 }
 
+                // Observe this URL into the Markov model for novel candidate generation
+                markov.observe(normalizedUrl);
+
                 // Extract links from rendered DOM
                 const links = await extractRenderedLinks(page, normalizedUrl);
                 for (const link of links) {
                     if (!visited.has(normalizeUrl(link))) {
                         queue.push({ url: link, depth: item.depth + 1, source: normalizedUrl });
+                        frontier.enqueue({ url: normalizeUrl(link), method: 'GET', source: normalizedUrl, depth: item.depth + 1 });
                     }
                 }
 
@@ -259,6 +279,12 @@ export async function crawlTargetHeadless(
                     }
                 }
 
+                // Mark form-bearing pages in frontier state so nearby URLs get risk boost
+                if (forms.length > 0) {
+                    frontierState.formBearing.add(normalizedUrl);
+                    frontier.rescore();
+                }
+
                 // Add form action URLs to queue
                 for (const form of forms) {
                     if (form.action && !visited.has(normalizeUrl(form.action))) {
@@ -296,6 +322,33 @@ export async function crawlTargetHeadless(
         }
     } finally {
         await browser.disconnect();
+    }
+
+    // Markov candidate injection: after the main crawl, generate novel URL paths the
+    // BFS never visited. The model learned from all observed paths; candidates are
+    // new paths plausible under the same structure. We add them as lightweight
+    // endpoints (no browser navigation — just register the surface for attack).
+    if (discoveredUrls.length > 0) {
+        const candidates = markov.generateCandidates(30, false);
+        for (const cpath of candidates) {
+            try {
+                const candidateUrl = new URL(cpath, config.baseUrl).toString();
+                if (!visited.has(normalizeUrl(candidateUrl)) && isSameOrigin(candidateUrl, config.baseUrl)) {
+                    discoveredUrls.push(candidateUrl);
+                    endpoints.push({
+                        url: candidateUrl,
+                        method: 'GET',
+                        params: extractQueryParams(candidateUrl),
+                        forms: [],
+                        headers: {},
+                        depth: config.maxDepth,
+                        source: 'markov-model',
+                    });
+                }
+            } catch {
+                // invalid URL construction — skip
+            }
+        }
     }
 
     return {

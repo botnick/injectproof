@@ -247,6 +247,8 @@ export interface ScanConfig {
     enableHeadless?: boolean;
     /** CDP WebSocket endpoint (e.g. ws://127.0.0.1:9222 for Lightpanda) */
     cdpEndpoint?: string;
+    /** Scan tier — controls which detector sets and post-exploit modules run. */
+    scanType?: 'quick' | 'standard' | 'deep' | 'custom';
 }
 
 /** Result from a single detector check */

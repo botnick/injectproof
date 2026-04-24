@@ -18,6 +18,8 @@ import { COMMON_CVSS_VECTORS, calculateCvssScore, generateCvssVector } from '@/l
 import { getCweEntry } from '@/lib/cwe-database';
 import { buildBaseline, type BaselineCluster } from '@/scanner/engine/oracle/baseline';
 import { validateFinding } from '@/scanner/engine/validate/pipeline';
+import { classifyChallenge } from '@/scanner/engine/recovery/challenge-detect';
+import { recover } from '@/scanner/engine/recovery/recover-403';
 
 // ============================================================
 // Types
@@ -107,6 +109,50 @@ async function probeOnce(
         const responseBody = await res.text();
         const responseHeaders: Record<string, string> = {};
         res.headers.forEach((v, k) => { responseHeaders[k] = v; });
+
+        // WAF/challenge recovery: walk the recovery ladder when the response looks
+        // like a WAF block (403/429/503/401). Skip for 500 — those are probe-triggered
+        // server errors we WANT the oracle to see as anomalies.
+        const wafStatus = res.status === 403 || res.status === 429 || res.status === 503 || res.status === 401;
+        const wafVerdict = wafStatus ? classifyChallenge({
+            status: res.status,
+            headers: responseHeaders,
+            bodyPreview: responseBody.slice(0, 2000),
+        }) : null;
+        if (wafVerdict && wafVerdict.class !== 'ok') {
+            const host = new URL(fetchUrl).hostname;
+            const recovery = await recover({
+                verdict: wafVerdict,
+                host,
+                retry: async (adj) => {
+                    const adjHeaders = { ...headers };
+                    if (adj.extraHeaders) Object.assign(adjHeaders, adj.extraHeaders);
+                    if (adj.removeHeaders) adj.removeHeaders.forEach(h => delete adjHeaders[h]);
+                    if (adj.userAgent) adjHeaders['User-Agent'] = adj.userAgent;
+                    if (adj.waitMs) await new Promise(r => setTimeout(r, adj.waitMs!));
+                    if (adj.useBrowser) return null; // browser handoff not supported in probe path
+                    const ctrl2 = new AbortController();
+                    const t2 = setTimeout(() => ctrl2.abort(), input.requestTimeout);
+                    try {
+                        const r2 = await fetch(fetchUrl, { method: body ? 'POST' : method, headers: adjHeaders, body, signal: ctrl2.signal, redirect: 'manual' });
+                        clearTimeout(t2);
+                        const b2 = await r2.text();
+                        const h2: Record<string, string> = {};
+                        r2.headers.forEach((v, k) => { h2[k] = v; });
+                        return { status: r2.status, headers: h2, bodyPreview: b2.slice(0, 2000) };
+                    } catch { clearTimeout(t2); return null; }
+                },
+            });
+            if (recovery.recovered && recovery.finalResponse && recovery.finalResponse.status < 400) {
+                return {
+                    status: recovery.finalResponse.status,
+                    headers: recovery.finalResponse.headers,
+                    body: recovery.finalResponse.bodyPreview ?? '',
+                    responseTimeMs: Date.now() - started,
+                };
+            }
+        }
+
         return {
             status: res.status,
             headers: responseHeaders,

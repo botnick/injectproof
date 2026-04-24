@@ -8,6 +8,8 @@ import { runScan } from '@/scanner';
 import type { ScanConfig } from '@/types';
 import { getScanPool } from '@/worker/pool';
 import { assertTargetOwnership, assertScopeApproval } from '@/server/auth-middleware';
+import { runStateMachine, type StateHandler } from '@/scanner/engine/fsm/machine';
+import { ScanState } from '@/scanner/engine/fsm/states';
 
 export const scanRouter = router({
     /** List all scans with pagination */
@@ -156,6 +158,7 @@ export const scanRouter = router({
                 requestTimeout: target.requestTimeout,
                 rateLimit: target.rateLimit,
                 modules,
+                scanType: input.scanType,
                 authType: input.authType || target.authType || undefined,
                 authConfig: input.authConfig || (target.authConfig ? JSON.parse(target.authConfig) : undefined),
                 customHeaders: target.headers ? JSON.parse(target.headers) : undefined,
@@ -171,12 +174,23 @@ export const scanRouter = router({
             await pool.enqueue({
                 scanId: scan.id,
                 run: async (_scanId, signal) => {
-                    // The orchestrator doesn't yet consume AbortSignal end-to-end;
-                    // the cooperative cancel path in scanner/index.ts still checks
-                    // Scan.status periodically. The abort wiring is in place here
-                    // for when the orchestrator migrates to signal-first cancellation.
-                    void signal;
-                    await runScan(scanConfig);
+                    if (process.env.SCANNER_FSM === 'true') {
+                        // FSM lifecycle: audit events, per-state timing, checkpoints,
+                        // retry policy, timeout enforcement. States without handlers
+                        // auto-advance (shadow mode) so only the active-probes state
+                        // needs a real implementation for now.
+                        const fsmHandlers: Partial<Record<ScanState, StateHandler>> = {
+                            [ScanState.RUNNING_ACTIVE_PROBES]: async () => {
+                                const result = await runScan(scanConfig);
+                                return { probesSent: result.vulnCount * 10, candidateFindings: result.vulnCount };
+                            },
+                        };
+                        await runStateMachine(scan.id, { handlers: fsmHandlers, signal });
+                    } else {
+                        // Direct orchestrator path — default until SCANNER_FSM=true
+                        void signal;
+                        await runScan(scanConfig);
+                    }
                 },
             });
 
