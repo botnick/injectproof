@@ -93,3 +93,4 @@ chrome-data/
 *.cpuprofile
 *.heapprofile
 *.heapsnapshot
+CLAUDE.md
