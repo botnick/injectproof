@@ -65,6 +65,10 @@ export const TH: Record<I18nKey, string> = {
     'report.formatHtml': 'HTML',
     'report.formatPdf': 'PDF',
     'report.formatSarif': 'SARIF',
+    'reports.subtitle': 'รายงานที่ generate แล้ว — ดาวน์โหลดเป็น Markdown / JSON / HTML เพื่อส่งต่อทีม dev หรือ auditor',
+    'reports.emptyTitle': 'ยังไม่มี report',
+    'reports.emptyBody': 'สร้าง report จาก scan ที่ completed แล้ว — จะ bundle finding, evidence, remediation + OWASP/CWE mapping เป็น Markdown / HTML / JSON ให้',
+    'reports.emptyAction': 'สร้าง report แรก',
 
     'settings.profile': 'โปรไฟล์',
     'settings.password': 'เปลี่ยนรหัสผ่าน',

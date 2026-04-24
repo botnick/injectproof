@@ -9,6 +9,7 @@ import { vulnerabilityRouter } from '@/server/routers/vulnerability';
 import { dashboardRouter } from '@/server/routers/dashboard';
 import { reportRouter } from '@/server/routers/report';
 import { scopeRouter } from '@/server/routers/scope';
+import { settingsRouter } from '@/server/routers/settings';
 
 export const appRouter = router({
     auth: authRouter,
@@ -18,6 +19,7 @@ export const appRouter = router({
     dashboard: dashboardRouter,
     report: reportRouter,
     scope: scopeRouter,
+    settings: settingsRouter,
 });
 
 export type AppRouter = typeof appRouter;

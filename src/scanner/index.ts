@@ -10,6 +10,8 @@ import { ALL_DETECTORS } from '@/scanner/detectors';
 import { ADVANCED_DETECTORS } from '@/scanner/advanced-detectors';
 import { runSmartFormSqliScan, type SmartFormScanConfig } from '@/scanner/smart-form-sqlmap';
 import { runReconScan, type ReconConfig } from '@/scanner/recon-scanner';
+import { runBacScan } from '@/scanner/bac-scanner';
+import { runAuthScan } from '@/scanner/auth-scanner';
 import { analyzePageIntelligence, type PageIntelligence } from '@/scanner/intelligent-scanner';
 import * as cheerio from 'cheerio';
 import prisma from '@/lib/prisma';
@@ -703,6 +705,7 @@ export async function runScan(
                 maxFormsPerPage: 20,
                 maxPayloadsPerField: 15,
                 enableDeepExploit: true,
+                realMode: config.realMode,
             };
 
             // Scan each unique URL for forms
@@ -754,6 +757,55 @@ export async function runScan(
             }
 
             await addScanLog(config.scanId, 'info', 'smart-form-sqli', 'Smart Form SQLi Engine completed');
+        }
+
+        // ========================================
+        // PHASE 2.5: BROKEN ACCESS CONTROL (BAC/IDOR)
+        // ========================================
+        // OWASP Top 10 A01. Runs against the discovered endpoint surface,
+        // tests four BAC classes (unauth / vertical / IDOR / horizontal).
+        await addScanLog(config.scanId, 'info', 'bac', 'Starting BAC/IDOR scanner');
+        try {
+            const bacFindings = await runBacScan(crawlResult.endpoints, {
+                requestTimeout: config.requestTimeout ?? 30000,
+                userAgent: config.userAgent ?? 'InjectProof-Scanner/1.0',
+                authHeaders: buildAuthHeaders(config),
+                customHeaders: config.customHeaders,
+                maxEndpointsPerClass: 50,
+                onLog: (msg) => { void addScanLog(config.scanId, 'info', 'bac', msg); },
+            });
+            for (const f of bacFindings) {
+                await saveVulnerability(config, f, 'bac');
+                totalVulns++;
+            }
+            await addScanLog(config.scanId, 'info', 'bac', `BAC scanner completed — ${bacFindings.length} finding(s)`);
+        } catch (err) {
+            await addScanLog(config.scanId, 'error', 'bac', `BAC scanner error: ${err instanceof Error ? err.message : String(err)}`);
+        }
+
+        // ========================================
+        // PHASE 2.6: AUTHENTICATION TESTING
+        // ========================================
+        // JWT alg:none / weak secret / HS-RS confusion, missing-auth probes,
+        // password-reset entropy analysis.
+        await addScanLog(config.scanId, 'info', 'auth', 'Starting authentication scanner (JWT + missing-auth + pwd-reset)');
+        try {
+            const authFindings = await runAuthScan(crawlResult.endpoints, {
+                requestTimeout: config.requestTimeout ?? 30000,
+                userAgent: config.userAgent ?? 'InjectProof-Scanner/1.0',
+                authHeaders: buildAuthHeaders(config),
+                customHeaders: config.customHeaders,
+                maxEndpointsPerClass: 40,
+                hs256WordlistCap: 100,
+                onLog: (msg) => { void addScanLog(config.scanId, 'info', 'auth', msg); },
+            });
+            for (const f of authFindings) {
+                await saveVulnerability(config, f, 'auth');
+                totalVulns++;
+            }
+            await addScanLog(config.scanId, 'info', 'auth', `Auth scanner completed — ${authFindings.length} finding(s)`);
+        } catch (err) {
+            await addScanLog(config.scanId, 'error', 'auth', `Auth scanner error: ${err instanceof Error ? err.message : String(err)}`);
         }
 
         // ========================================

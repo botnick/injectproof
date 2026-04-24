@@ -79,6 +79,9 @@ export const scanRouter = router({
             modules: z.array(z.string()).optional(),
             authType: z.string().optional(),
             authConfig: z.record(z.string(), z.unknown()).optional(),
+            /** Opt in to human-like behavioural timing (3-10× slower) for
+             *  scans against targets behind bot-detection / Turnstile / etc. */
+            realMode: z.boolean().optional(),
         }))
         .mutation(async ({ ctx, input }) => {
             // Ownership gate: caller must own the target or be security_lead+.
@@ -164,6 +167,7 @@ export const scanRouter = router({
                 customHeaders: target.headers ? JSON.parse(target.headers) : undefined,
                 excludePaths: target.excludePaths ? JSON.parse(target.excludePaths) : undefined,
                 includePaths: target.includePaths ? JSON.parse(target.includePaths) : undefined,
+                realMode: input.realMode,
             };
 
             // Enqueue through the worker pool rather than detaching. The pool

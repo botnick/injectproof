@@ -132,7 +132,18 @@ export const authRouter = router({
             return { ok: true };
         }),
 
-    /** Register a new user (admin only in production, open for initial setup) */
+    /**
+     * Register a new user. Two paths:
+     *  - First-run bootstrap (zero users exist) — the caller can self-register
+     *    as admin. Enables /signup before any seed/admin exists.
+     *  - Normal operation (≥1 user exists) — only an authenticated admin may
+     *    create additional accounts. Public self-serve signup is disabled
+     *    after bootstrap to prevent privilege escalation via an open form.
+     *
+     * Non-admin registrants (developer/viewer/pentester paths) always get
+     * `viewer` role regardless of the input — role selection is a trust decision
+     * that must be made by an admin, not the signup form.
+     */
     register: publicProcedure
         .input(z.object({
             email: z.string().email(),
@@ -141,6 +152,23 @@ export const authRouter = router({
             role: z.enum(['admin', 'security_lead', 'pentester', 'developer', 'viewer']).default('viewer'),
         }))
         .mutation(async ({ ctx, input }) => {
+            const userCount = await ctx.prisma.user.count();
+            const isFirstRun = userCount === 0;
+            const callerRole = ctx.user?.role;
+            const callerIsAdmin = callerRole === 'admin';
+
+            // Gate: after bootstrap, only admins can register new users.
+            if (!isFirstRun && !callerIsAdmin) {
+                throw new TRPCError({
+                    code: 'FORBIDDEN',
+                    message: 'User registration is closed. Ask an admin to create an account for you.',
+                });
+            }
+
+            // Role assignment: bootstrap user gets admin; otherwise the role
+            // from input is trusted only because we already gated on admin.
+            const effectiveRole = isFirstRun ? 'admin' : input.role;
+
             const existing = await ctx.prisma.user.findUnique({
                 where: { email: input.email },
             });
@@ -156,7 +184,23 @@ export const authRouter = router({
                     email: input.email,
                     passwordHash,
                     name: input.name,
-                    role: input.role,
+                    role: effectiveRole,
+                },
+            });
+
+            // Audit trail — track who created whom, especially important in
+            // the post-bootstrap path where admins invite others.
+            await ctx.prisma.auditLog.create({
+                data: {
+                    userId: callerIsAdmin ? ctx.user!.userId : user.id,
+                    action: 'user_registered',
+                    resource: 'user',
+                    resourceId: user.id,
+                    details: JSON.stringify({
+                        via: isFirstRun ? 'bootstrap' : 'admin-invite',
+                        role: effectiveRole,
+                        email: input.email,
+                    }),
                 },
             });
 
@@ -175,8 +219,19 @@ export const authRouter = router({
                     name: user.name,
                     role: user.role,
                 },
+                isFirstRun,
             };
         }),
+
+    /**
+     * Returns true when the database has zero users — used by the login page
+     * to conditionally show a "Sign up" link (bootstrap flow). Once an admin
+     * exists, signup is admin-gated, so the login page doesn't advertise it.
+     */
+    isFirstRun: publicProcedure.query(async ({ ctx }) => {
+        const count = await ctx.prisma.user.count();
+        return count === 0;
+    }),
 
     /** Get current user info */
     me: protectedProcedure.query(async ({ ctx }) => {

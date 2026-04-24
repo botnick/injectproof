@@ -1,7 +1,7 @@
 // InjectProof — Scans List Page (Premium Glassmorphism + Delete)
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { trpc } from '@/trpc/client';
 import Link from 'next/link';
 import {
@@ -9,6 +9,9 @@ import {
     StopCircle, ExternalLink, Search, Filter,
     CheckCircle2, XCircle, Loader2, AlertTriangle,
 } from 'lucide-react';
+import { Pager } from '@/components/ui/pager';
+
+const SCANS_PAGE_SIZE = 20;
 
 /* ── Status config ─────────────────────────────────────── */
 const STATUS_CONFIG: Record<string, {
@@ -30,21 +33,35 @@ const SCAN_TYPE_LABELS: Record<string, { label: string; accent: string }> = {
 };
 
 export default function ScansPage() {
-    const { data, isLoading, refetch } = trpc.scan.list.useQuery({}, {
-        refetchInterval: (q) => {
-            const hasRunning = q.state.data?.items?.some((s: any) => s.status === 'running');
-            return hasRunning ? 3000 : false;
+    const [page, setPage] = useState(1);
+    const [filterStatus, setFilterStatus] = useState<string>('all');
+    // Reset pager when the filter changes — status='completed' may have fewer
+    // pages than status='all', so staying on page 3 of a filter that now has
+    // 1 page = empty UI.
+    useEffect(() => { setPage(1); }, [filterStatus]);
+
+    const { data, isLoading, refetch } = trpc.scan.list.useQuery(
+        {
+            page,
+            pageSize: SCANS_PAGE_SIZE,
+            status: filterStatus === 'all' ? undefined : filterStatus,
         },
-    });
+        {
+            refetchInterval: (q) => {
+                const hasRunning = q.state.data?.items?.some((s: any) => s.status === 'running');
+                return hasRunning ? 3000 : false;
+            },
+        },
+    );
     const stopMutation = trpc.scan.stop.useMutation({ onSuccess: () => refetch() });
     const deleteMutation = trpc.scan.delete.useMutation({ onSuccess: () => refetch() });
 
     const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-    const [filterStatus, setFilterStatus] = useState<string>('all');
 
-    const filteredItems = (data?.items || []).filter((scan: any) =>
-        filterStatus === 'all' || scan.status === filterStatus
-    );
+    // Server-side filtering now handles status; we still keep a local variable
+    // to avoid renaming the many references below. data.items already reflects
+    // the active status filter when filterStatus !== 'all'.
+    const filteredItems = data?.items || [];
 
     const handleDelete = (scanId: string) => {
         if (deleteConfirm === scanId) {
@@ -281,6 +298,16 @@ export default function ScansPage() {
                         </Link>
                     )}
                 </div>
+            )}
+
+            {data && data.total > SCANS_PAGE_SIZE && (
+                <Pager
+                    page={page}
+                    totalPages={Math.max(1, Math.ceil(data.total / SCANS_PAGE_SIZE))}
+                    onPageChange={setPage}
+                    totalItems={data.total}
+                    pageSize={SCANS_PAGE_SIZE}
+                />
             )}
 
             {/* ── Delete Error Toast ─────────────────── */}

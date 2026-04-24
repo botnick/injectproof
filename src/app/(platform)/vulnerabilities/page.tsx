@@ -1,9 +1,12 @@
 // InjectProof — Vulnerabilities List Page (OWASP-Grouped Glassmorphism)
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { trpc } from '@/trpc/client';
 import Link from 'next/link';
+import { Pager } from '@/components/ui/pager';
+
+const VULNS_PAGE_SIZE = 50;
 import {
     Bug, Search, ChevronDown, ChevronRight,
     Globe, Shield, ExternalLink, Fingerprint, Skull,
@@ -136,10 +139,15 @@ export default function VulnerabilitiesPage() {
     const [severity, setSeverity] = useState('');
     const [category, setCategory] = useState('');
     const [status, setStatus] = useState('');
+    const [page, setPage] = useState(1);
+    // Reset to page 1 when any filter changes, otherwise we may land on an
+    // empty page 2 that existed under the old filter.
+    useEffect(() => { setPage(1); }, [search, severity, category, status]);
 
-    // Fetch larger page to allow proper grouping
+    // Server paginates; grouping is client-side within the current page.
     const { data, isLoading } = trpc.vulnerability.list.useQuery({
-        pageSize: 100,
+        page,
+        pageSize: VULNS_PAGE_SIZE,
         search: search || undefined,
         severity: severity || undefined,
         category: category || undefined,
@@ -254,6 +262,16 @@ export default function VulnerabilitiesPage() {
                     <h3 className="text-lg font-semibold text-gray-400">No vulnerabilities found</h3>
                     <p className="text-sm text-gray-600 mt-1">Run a scan to discover vulnerabilities</p>
                 </div>
+            )}
+
+            {data && data.total > VULNS_PAGE_SIZE && (
+                <Pager
+                    page={page}
+                    totalPages={Math.max(1, Math.ceil(data.total / VULNS_PAGE_SIZE))}
+                    onPageChange={setPage}
+                    totalItems={data.total}
+                    pageSize={VULNS_PAGE_SIZE}
+                />
             )}
         </div>
     );

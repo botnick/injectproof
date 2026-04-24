@@ -4,14 +4,21 @@
 import { use } from 'react';
 import { trpc } from '@/trpc/client';
 import Link from 'next/link';
-import { ArrowLeft, Radar, Globe, Shield, Clock, Bug, Play, Pencil } from 'lucide-react';
+import { ArrowLeft, Radar, Globe, Shield, Clock, Bug, Play, Pencil, ShieldAlert } from 'lucide-react';
 
 export default function TargetDetailPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = use(params);
     const { data: target, isLoading } = trpc.target.getById.useQuery(id);
+    // Fetch scope approval state. For dev-env targets this is advisory; for
+    // prod/staging the scan router hard-rejects without it. Either way we
+    // surface the state so the user isn't surprised later.
+    const { data: scope } = trpc.scope.listForTarget.useQuery({ targetId: id });
 
     if (isLoading) return <div className="flex justify-center py-12"><div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" /></div>;
     if (!target) return <div className="text-gray-500 text-center py-12">Target not found</div>;
+
+    const needsScope = target.environment === 'production' || target.environment === 'staging';
+    const hasActiveScope = Boolean(scope?.current);
 
     return (
         <div className="space-y-6 animate-fade-in">
@@ -26,6 +33,30 @@ export default function TargetDetailPage({ params }: { params: Promise<{ id: str
                     <Link href={`/scans/new?targetId=${target.id}`} className="btn-primary flex items-center gap-2"><Play className="w-4 h-4" /> Start Scan</Link>
                 </div>
             </div>
+
+            {/* Scope-required banner — only for prod/staging targets without an
+                approved scope. Dev targets don't show this since scans run without
+                scope checks there. */}
+            {needsScope && !hasActiveScope && (
+                <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 flex items-start gap-3 text-sm">
+                    <ShieldAlert className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                        <p className="font-medium text-amber-200">Scope approval required before scanning</p>
+                        <p className="text-amber-300/80 text-xs mt-1">
+                            This is a <strong className="capitalize">{target.environment}</strong> target.
+                            A <code className="text-amber-100">security_lead</code> must sign an engagement scope
+                            (allowed paths, allowed methods, exploit / OS-cmd / file-read flags) before any scan
+                            can start. Without a signed approval, <code className="text-amber-100">scan.create</code> will reject.
+                        </p>
+                    </div>
+                    <Link
+                        href={`/targets/${target.id}/scope`}
+                        className="btn-secondary !bg-amber-500/20 !border-amber-500/30 !text-amber-100 hover:!bg-amber-500/30 text-xs flex-shrink-0"
+                    >
+                        Request Scope Approval →
+                    </Link>
+                </div>
+            )}
 
             {/* Info Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

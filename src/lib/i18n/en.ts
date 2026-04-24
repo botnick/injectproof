@@ -63,6 +63,10 @@ export const EN = {
     'report.formatHtml': 'HTML',
     'report.formatPdf': 'PDF',
     'report.formatSarif': 'SARIF',
+    'reports.subtitle': 'Generated reports — download as Markdown / JSON / HTML to hand off to devs or auditors',
+    'reports.emptyTitle': 'No reports yet',
+    'reports.emptyBody': 'Generate a report from a completed scan — it bundles findings, evidence, remediation, and OWASP/CWE mappings into Markdown / HTML / JSON for you.',
+    'reports.emptyAction': 'Generate first report',
 
     'settings.profile': 'Profile',
     'settings.password': 'Change password',

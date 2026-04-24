@@ -13,6 +13,11 @@ export default function LoginPage() {
     const [showPassword, setShowPassword] = useState(false);
     const [error, setError] = useState('');
 
+    // First-run check: if the DB has zero users, show a "Sign up" link so
+    // the operator can bootstrap the first admin account. Hidden after the
+    // first user exists because public signup is gated to admins after that.
+    const { data: isFirstRun } = trpc.auth.isFirstRun.useQuery();
+
     const loginMutation = trpc.auth.login.useMutation({
         onSuccess: (data) => {
             localStorage.setItem('injectproof_token', data.token);
@@ -133,10 +138,21 @@ export default function LoginPage() {
                         </button>
                     </form>
 
-                    <div className="mt-6 pt-5 border-t border-[var(--border-subtle)] relative z-10">
+                    <div className="mt-6 pt-5 border-t border-[var(--border-subtle)] relative z-10 space-y-2">
                         <p className="text-[11px] text-[var(--text-muted)] text-center">
                             Demo: <code className="text-brand-400/60 font-mono">admin@injectproof.local</code> / <code className="text-brand-400/60 font-mono">admin123</code>
                         </p>
+                        {/* Bootstrap-only signup link — disappears after the first
+                            admin is created. Post-bootstrap, new accounts must be
+                            provisioned by an admin (no public self-serve). */}
+                        {isFirstRun && (
+                            <p className="text-[11px] text-center text-amber-400/80">
+                                No users yet.{' '}
+                                <a href="/signup" className="underline hover:text-amber-300 transition-colors">
+                                    Create the first admin account →
+                                </a>
+                            </p>
+                        )}
                     </div>
                 </div>
 

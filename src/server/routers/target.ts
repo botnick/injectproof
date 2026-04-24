@@ -6,6 +6,7 @@ import { router, protectedProcedure, pentesterProcedure } from '@/server/trpc';
 import { TRPCError } from '@trpc/server';
 import { checkTargetUrl } from '@/lib/ssrf-guard';
 import { assertTargetOwnership } from '@/server/auth-middleware';
+import { config } from '@/lib/config';
 
 export const targetRouter = router({
     /** List all targets with pagination and filtering */
@@ -85,7 +86,7 @@ export const targetRouter = router({
             name: z.string().min(1).max(100),
             baseUrl: z.string().url(),
             description: z.string().optional(),
-            environment: z.enum(['production', 'staging', 'development', 'internal']).default('production'),
+            environment: z.enum(['production', 'staging', 'development', 'internal']).default('development'),
             criticality: z.enum(['critical', 'high', 'medium', 'low']).default('medium'),
             tags: z.array(z.string()).optional(),
             authType: z.enum(['none', 'token', 'cookie', 'session', 'scripted']).optional(),
@@ -101,15 +102,46 @@ export const targetRouter = router({
             labOverride: z.boolean().optional(),
         }))
         .mutation(async ({ ctx, input }) => {
-            // SSRF guard — reject private/loopback/metadata IPs unless lab mode
-            // is opted in AND the caller is at least security_lead.
-            const labAllowed = input.labOverride === true
+            // SSRF guard — reject private/loopback/metadata IPs unless EITHER:
+            //   (a) the deployment is opted into internal-target mode via
+            //       SCANNER_ALLOW_INTERNAL_TARGETS=true (the whole appliance
+            //       runs in a trusted internal network — internal pentest use
+            //       case), OR
+            //   (b) the caller explicitly passes labOverride=true AND is at
+            //       least security_lead (per-request opt-in, public deploys).
+            // Either path still audit-logs the internal target — any internal
+            // scan needs to be traceable to the user who authorised it.
+            const allowInternal = config().SCANNER_ALLOW_INTERNAL_TARGETS === true;
+            const perRequestLabOverride = input.labOverride === true
                 && (ctx.user!.role === 'security_lead' || ctx.user!.role === 'admin');
+            // In development mode, localhost / 127.0.0.1 / ::1 are always
+            // allowed — these are only reachable from the scanner host itself,
+            // so there's no SSRF attack surface. RFC1918 / metadata-IP still
+            // need the explicit env flag because those ARE routable from
+            // cloud / corporate networks.
+            const isDevMode = config().NODE_ENV !== 'production';
+            const labAllowed = allowInternal || perRequestLabOverride || isDevMode;
             const guard = await checkTargetUrl(input.baseUrl, { labOverride: labAllowed });
             if (!guard.allowed) {
+                // Highly-actionable error — user sees this the moment they try
+                // a localhost / RFC1918 target without the flag set, and the
+                // fix is always a 1-line .env change + dev-server restart.
+                const fix = !allowInternal
+                    ? `\n\nTo unlock internal targets for authorised internal pentest:\n` +
+                      `  1) Add this line to your .env file (in the project root):\n` +
+                      `       SCANNER_ALLOW_INTERNAL_TARGETS=true\n` +
+                      `  2) Restart the Next.js dev server (Ctrl+C then \`npm run dev\`).\n` +
+                      `  3) Retry creating the target.\n` +
+                      `วิธีเปิดใช้ scan ระบบภายในองค์กร:\n` +
+                      `  1) เพิ่มบรรทัดนี้ในไฟล์ .env (ที่ root ของโปรเจกต์):\n` +
+                      `       SCANNER_ALLOW_INTERNAL_TARGETS=true\n` +
+                      `  2) restart dev server (Ctrl+C แล้ว \`npm run dev\` ใหม่)\n` +
+                      `  3) สร้าง target อีกครั้ง`
+                    : `\n\nScanner is configured to allow internal targets but this specific URL was still rejected — ` +
+                      `check that the hostname resolves to an expected private IP (DNS-rebinding guard still runs).`;
                 throw new TRPCError({
                     code: 'BAD_REQUEST',
-                    message: `Target URL rejected by SSRF guard: ${guard.reason ?? 'unknown reason'}`,
+                    message: `Target URL rejected by SSRF guard: ${guard.reason ?? 'unknown reason'}.${fix}`,
                 });
             }
 
@@ -134,14 +166,22 @@ export const targetRouter = router({
                 },
             });
 
-            // Audit log
+            // Audit log — always record which gate path allowed internal targets
+            // so the trail survives later reviews.
             await ctx.prisma.auditLog.create({
                 data: {
                     userId: ctx.user!.userId,
                     action: 'create_target',
                     resource: 'target',
                     resourceId: target.id,
-                    details: JSON.stringify({ name: input.name, baseUrl: input.baseUrl }),
+                    details: JSON.stringify({
+                        name: input.name,
+                        baseUrl: input.baseUrl,
+                        internalAllowedVia: labAllowed
+                            ? (allowInternal ? 'env:SCANNER_ALLOW_INTERNAL_TARGETS' : 'labOverride:security_lead')
+                            : 'public-only',
+                        resolvedIps: guard.resolvedIps,
+                    }),
                 },
             });
 
@@ -174,8 +214,11 @@ export const targetRouter = router({
             const { id, tags, authConfig, headers, excludePaths, includePaths, ...rest } = input;
 
             // If the caller is changing baseUrl, re-run the SSRF guard.
+            // Honor the same env flag + role gate as target.create so internal
+            // targets stay editable once the deployment opts in.
             if (rest.baseUrl) {
-                const guard = await checkTargetUrl(rest.baseUrl);
+                const allowInternal = config().SCANNER_ALLOW_INTERNAL_TARGETS === true;
+                const guard = await checkTargetUrl(rest.baseUrl, { labOverride: allowInternal });
                 if (!guard.allowed) {
                     throw new TRPCError({
                         code: 'BAD_REQUEST',

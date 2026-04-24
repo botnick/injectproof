@@ -1,15 +1,27 @@
 // InjectProof — Targets List Page
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { trpc } from '@/trpc/client';
 import Link from 'next/link';
 import { Target, Plus, Search, Globe, Shield, ExternalLink, Trash2, Pencil } from 'lucide-react';
+import { Pager } from '@/components/ui/pager';
+
+const PAGE_SIZE = 20;
 
 export default function TargetsPage() {
     const [search, setSearch] = useState('');
     const [envFilter, setEnvFilter] = useState('');
-    const { data, isLoading, refetch } = trpc.target.list.useQuery({ search, environment: envFilter || undefined });
+    const [page, setPage] = useState(1);
+    // Reset to page 1 whenever filters change — otherwise we may land on an
+    // empty page if the filter narrows the result set.
+    useEffect(() => { setPage(1); }, [search, envFilter]);
+    const { data, isLoading, refetch } = trpc.target.list.useQuery({
+        search,
+        environment: envFilter || undefined,
+        page,
+        pageSize: PAGE_SIZE,
+    });
     const deleteMutation = trpc.target.delete.useMutation({ onSuccess: () => refetch() });
 
     return (
@@ -91,6 +103,16 @@ export default function TargetsPage() {
                     <p className="text-sm text-gray-600 mt-1">Add your first target to start scanning</p>
                     <Link href="/targets/new" className="btn-primary mt-4">Add Target</Link>
                 </div>
+            )}
+
+            {data && data.total > PAGE_SIZE && (
+                <Pager
+                    page={page}
+                    totalPages={Math.max(1, Math.ceil(data.total / PAGE_SIZE))}
+                    onPageChange={setPage}
+                    totalItems={data.total}
+                    pageSize={PAGE_SIZE}
+                />
             )}
         </div>
     );

@@ -58,7 +58,7 @@ model Target {
   name              String
   baseUrl           String
   description       String?
-  environment       String   @default("production") // production, staging, development, internal
+  environment       String   @default("development") // production, staging, development, internal
   criticality       String   @default("medium") // critical, high, medium, low
   tags              String?  // JSON array as string
   authType          String?  // none, token, cookie, session, scripted

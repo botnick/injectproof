@@ -9,6 +9,7 @@ import {
     Crosshair, Layers, Globe, Shield,
     CheckCircle2, XCircle, Radio, Gauge,
     ChevronDown, ChevronRight, ExternalLink,
+    FileText, Download, Zap,
 } from 'lucide-react';
 import { getCweEntry, OWASP_TOP_10_2021, CATEGORY_DISPLAY_NAMES } from '@/lib/cwe-database';
 import { useScanEvents } from './use-scan-events';
@@ -229,6 +230,22 @@ export default function ScanDetailPage({ params }: { params: Promise<{ id: strin
                     </p>
                 </div>
                 <Pill status={scan.status} />
+                {/* Export Report button — available once the scan has
+                    anything to report (running or completed). Opens the PDF
+                    in a new tab so the browser handles save/print naturally. */}
+                {(scan.status === 'completed' || scan.status === 'running' || scan.status === 'failed') && (
+                    <a
+                        href={`/api/scan/${scan.id}/report.pdf`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 hover:bg-emerald-500/15 transition-all"
+                        title="Download corporate-grade PDF report (bilingual EN/TH, includes remediation + evidence)"
+                    >
+                        <FileText className="w-3.5 h-3.5" />
+                        Report PDF
+                        <Download className="w-3 h-3" />
+                    </a>
+                )}
             </div>
 
             {/* ── Live Progress Panel ────────────────── */}
@@ -408,42 +425,46 @@ function OwaspGroup({ group }: { group: VulnGroup }) {
                 <div className="vuln-group-body">
                     {deduplicated.map((item, idx) => (
                         <div key={`${item.cweId}-${item.parameter}-${item.category}-${idx}`} className="border-b border-white/[0.02] last:border-0">
-                            {/* CWE Row */}
-                            <Link
-                                href={`/vulnerabilities/${item.firstVulnId}`}
-                                className="flex items-center gap-3 px-5 py-3 hover:bg-white/[0.02] transition-all duration-200 group"
-                            >
-                                <SevDot severity={item.severity} />
+                            {/* CWE Row — Link wraps the clickable navigation area; the
+                                controls area lives as a sibling so we can host a
+                                button (invalid as anchor descendant in strict HTML). */}
+                            <div className="flex items-center gap-3 px-5 py-3 hover:bg-white/[0.02] transition-all duration-200 group">
+                                <Link
+                                    href={`/vulnerabilities/${item.firstVulnId}`}
+                                    className="flex items-center gap-3 flex-1 min-w-0"
+                                >
+                                    <SevDot severity={item.severity} />
 
-                                <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                        {item.cweId && (
-                                            <span className="text-[11px] font-mono text-violet-400/70 flex-shrink-0">
-                                                {item.cweId}
-                                            </span>
-                                        )}
-                                        <p className="text-sm text-[var(--text-primary)] group-hover:text-[var(--accent)] truncate transition-colors">
-                                            {item.title}
-                                        </p>
-                                        {item.parameter && (
-                                            <span className="text-[10px] font-mono text-cyan-400/60 bg-cyan-500/5 border border-cyan-500/10 rounded px-1.5 py-0.5 flex-shrink-0">
-                                                {item.parameter}
-                                            </span>
-                                        )}
-                                    </div>
-                                    {/* NIST controls */}
-                                    {item.nist.length > 0 && (
-                                        <div className="flex items-center gap-1.5 mt-1">
-                                            <span className="text-[10px] text-gray-700">NIST:</span>
-                                            {item.nist.slice(0, 3).map(n => (
-                                                <span key={n} className="text-[10px] text-blue-400/50 font-mono">{n}</span>
-                                            ))}
-                                            {item.nist.length > 3 && (
-                                                <span className="text-[10px] text-gray-700">+{item.nist.length - 3}</span>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            {item.cweId && (
+                                                <span className="text-[11px] font-mono text-violet-400/70 flex-shrink-0">
+                                                    {item.cweId}
+                                                </span>
+                                            )}
+                                            <p className="text-sm text-[var(--text-primary)] group-hover:text-[var(--accent)] truncate transition-colors">
+                                                {item.title}
+                                            </p>
+                                            {item.parameter && (
+                                                <span className="text-[10px] font-mono text-cyan-400/60 bg-cyan-500/5 border border-cyan-500/10 rounded px-1.5 py-0.5 flex-shrink-0">
+                                                    {item.parameter}
+                                                </span>
                                             )}
                                         </div>
-                                    )}
-                                </div>
+                                        {/* NIST controls */}
+                                        {item.nist.length > 0 && (
+                                            <div className="flex items-center gap-1.5 mt-1">
+                                                <span className="text-[10px] text-gray-700">NIST:</span>
+                                                {item.nist.slice(0, 3).map(n => (
+                                                    <span key={n} className="text-[10px] text-blue-400/50 font-mono">{n}</span>
+                                                ))}
+                                                {item.nist.length > 3 && (
+                                                    <span className="text-[10px] text-gray-700">+{item.nist.length - 3}</span>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                </Link>
 
                                 <div className="flex items-center gap-2.5 flex-shrink-0">
                                     {item.count > 1 && (
@@ -455,8 +476,24 @@ function OwaspGroup({ group }: { group: VulnGroup }) {
                                     {item.cvssScore != null && (
                                         <span className="text-xs font-mono text-gray-600 tabular-nums">{item.cvssScore}</span>
                                     )}
+                                    {/* Inline Exploit button — only for SQLi findings.
+                                        Routes to /vulnerabilities/:id?tab=sqli_exploit which
+                                        auto-opens the Deep Exploit tab there. One-click
+                                        path from scan→exploit without the previous clicking
+                                        through tabs. */}
+                                    {item.category === 'sqli' && (
+                                        <Link
+                                            href={`/vulnerabilities/${item.firstVulnId}?tab=sqli_exploit`}
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/20 hover:bg-amber-500/20 transition-all"
+                                            title="Open Deep Exploit panel for this SQLi finding"
+                                        >
+                                            <Zap className="w-3 h-3" />
+                                            Exploit
+                                        </Link>
+                                    )}
                                 </div>
-                            </Link>
+                            </div>
 
                             {/* Affected URLs (compact, shown under the CWE row) */}
                             {item.urls.length > 0 && (

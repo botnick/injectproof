@@ -16,6 +16,19 @@
 import { z, type ZodTypeAny } from 'zod';
 import { redactText } from './redaction';
 
+// Strict boolean env coercion. z.coerce.boolean() maps ANY non-empty string
+// (including the literal "false") to true, which is a footgun for env flags.
+// This preprocessor treats only the explicit truthy spellings as true so
+// "SCANNER_X=false" / "SCANNER_X=0" work as expected.
+const envBool = z.preprocess(
+    (v) => {
+        if (typeof v === 'boolean') return v;
+        if (typeof v !== 'string') return v;
+        return ['true', '1', 'yes', 'on'].includes(v.trim().toLowerCase());
+    },
+    z.boolean(),
+);
+
 // ────────────────────────────────────────────────────────────
 // Schema
 // ────────────────────────────────────────────────────────────
@@ -111,43 +124,49 @@ const ENV_SCHEMA: Record<string, EntryMeta> = {
         description: 'Feature flag: enable formal FSM scan lifecycle.',
         descriptionTh: 'เปิดใช้ FSM สำหรับ scan lifecycle.',
         default: false,
-        schema: z.coerce.boolean(),
+        schema: envBool,
+    },
+    SCANNER_ALLOW_INTERNAL_TARGETS: {
+        description: 'Allow scanning internal / private-range hosts (localhost, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16). Set true for internal-only pentest appliances where the whole scanner sits inside a trusted network; set false for public-facing deployments to keep the SSRF guard strict. Default: false.',
+        descriptionTh: 'อนุญาตให้ scan host ภายใน (localhost, 10.x, 192.168.x, 172.16.x, 169.254.x). ตั้ง true เมื่อ deploy scanner ไว้ในเครือข่ายภายในองค์กร เพื่อทดสอบระบบของพนักงานเองก่อน deploy prod. ตั้ง false สำหรับ deploy แบบ public เพื่อรักษาป้องกัน SSRF. Default: false.',
+        default: false,
+        schema: envBool,
     },
     SCANNER_KILL_SWITCH: {
         description: 'Feature flag: enable global kill switch checks in request pipeline.',
         descriptionTh: 'เปิดใช้ kill switch ใน request pipeline.',
         default: true,
-        schema: z.coerce.boolean(),
+        schema: envBool,
     },
     SCANNER_RECOVERY: {
         description: 'Feature flag: enable 403/WAF/Cloudflare recovery engine.',
         descriptionTh: 'เปิดใช้ระบบฟื้นตัวจาก 403/WAF/Cloudflare.',
         default: true,
-        schema: z.coerce.boolean(),
+        schema: envBool,
     },
     SCANNER_BUDGET: {
         description: 'Feature flag: enforce per-scan request budget.',
         descriptionTh: 'เปิดใช้ budget controller ของ scan.',
         default: true,
-        schema: z.coerce.boolean(),
+        schema: envBool,
     },
     ENABLE_TENANTS: {
         description: 'Feature flag: multi-tenancy enforcement in tRPC.',
         descriptionTh: 'เปิดใช้ multi-tenancy ในระดับ tRPC.',
         default: false,
-        schema: z.coerce.boolean(),
+        schema: envBool,
     },
     SCHEDULER_ENABLED: {
         description: 'Boot the cron scheduler on start.',
         descriptionTh: 'เปิดตัว cron scheduler ตอน boot.',
         default: false,
-        schema: z.coerce.boolean(),
+        schema: envBool,
     },
     EASM_DEBUG: {
         description: 'EASM probe debug logging.',
         descriptionTh: 'log การ probe ของ EASM แบบ debug.',
         default: false,
-        schema: z.coerce.boolean(),
+        schema: envBool,
     },
     NODE_ENV: {
         description: 'Node environment.',
@@ -180,6 +199,7 @@ export type ConfigShape = {
     SCANNER_MAX_CRAWL_DEPTH: number;
     SCANNER_MAX_URLS: number;
     SCANNER_FSM: boolean;
+    SCANNER_ALLOW_INTERNAL_TARGETS: boolean;
     SCANNER_KILL_SWITCH: boolean;
     SCANNER_RECOVERY: boolean;
     SCANNER_BUDGET: boolean;

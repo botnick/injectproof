@@ -598,6 +598,71 @@ This software is designed for authorized penetration testing only. Running it ag
 
 ---
 
+## Recent Changes
+
+### Scanner depth — sqlmap-parity deep exploitation
+- **Parallel breakout discovery + UNION sweep + error-wrapper detection** (concurrency 8 with short-circuit on first hit). Reduces first-expression extraction from ~160 s worst case to ~20 s.
+- **Time-blind last-resort in force-try** — previously absent; now closes the "fully blind endpoint" gap by probing every breakout alternate with a DBMS-native `SLEEP` and extracting via expected-information-gain optimal probes.
+- **28 sqlmap-style tampers** (`between`, `charencode`, `charunicodeencode`, `chardoubleencode`, `space2comment`, `space2dash`, `space2hash`, `space2mysqlblank`, `space2plus`, `randomcase`, `equaltolike`, `greatest`, `percentage`, `appendnullbyte`, `modsecurityversioned`, `modsecurityzeroversioned`, `halfversionedmorekeywords`, `versionedkeywords`, `symboliclogical`, `apostrophemask`, `apostrophenullencode`, `base64encode`, `concat2concatws`, `plus2concat`, `bluecoat`, `hex-keywords`, `inline-comment`, `plain`) with 7 WAF-specific chains (cloudflare, modsecurity, aws_waf, imperva, akamai, f5_bigip, bluecoat).
+- **Trigram-Jaccard response similarity** replaces the old `Math.abs(len - baseline) < 50` boolean-blind heuristic — tolerant of CSRF tokens, dynamic timestamps, ad slots.
+- **sqlmap `--level` 1–5** expands UNION column-count sweep from 1–5 (default) to 1–40 (exhaustive).
+- **sqlmap `--risk` 1–3** unlocks OR-based boolean and stacked-query probes (explicit opt-in because they can return extra rows on UPDATE queries).
+- **Oracle DBMS full support** — `all_users`, `all_tables`, `all_tab_columns`, `user_role_privs`, `sys.user$` enumeration with `LISTAGG` aggregator.
+- **7 injection points** — query, body, JSON, header, cookie, path, multipart.
+- **HEX-encoded string literals** bypass quote-stripping WAFs and resolve outer-breakout quote conflicts.
+- **Row-by-row fallback** when `GROUP_CONCAT` hits `group_concat_max_len` (MySQL default 1024 bytes).
+
+### Authentication & access-control testing (new modules)
+- **BAC/IDOR scanner** (`src/scanner/bac-scanner.ts`) — four classes of OWASP #1 Broken Access Control: unauthenticated access to protected endpoints, vertical BAC (low-priv user hits admin paths), IDOR (numeric / UUID / short-hex ID enumeration on path + query slots), horizontal BAC (two-session replay). Uses the same trigram-Jaccard similarity oracle as the SQLi engine.
+- **Auth scanner** (`src/scanner/auth-scanner.ts`) — JWT `alg:none`, HS256 weak-secret brute force (100-entry dictionary), HS/RS algorithm confusion advisory (JWKS exposure), missing-auth endpoint probes, password-reset token entropy + numerical-drift analysis.
+
+### Form-level injection (new modules)
+- **SmartFormFiller** (`src/scanner/smart-form-filler.ts`) — semantic inference across 40+ field types (email, phone, name, address, credit card, IBAN, SSN, Thai national ID, …) with EN + TH keyword matching. Realistic value generator produces values that pass backend validation (Luhn-valid Visa, RFC email, E.164 phone, ISO dates, RFC5737 IP). Multi-input-type support covers radio, checkbox, select, file (in-memory tiny PNG), range, color, date/time — including SPA-safe event dispatch so React/Vue reactivity fires.
+- **SmartFormXssScanner** (`src/scanner/smart-form-xss.ts`) — 11 payload templates across 7 contexts (html-body, attribute, href, script-string, script-block, polyglot, reflect-only). Execution verified via `window.__IPF_XSS_<token>` sentinel — not just reflection matching. Uses SmartFormFiller so payloads reach the backend past validation.
+
+### Reporting
+- **Corporate PDF report** at `/api/scan/[id]/report.pdf` — Puppeteer renders an A4 document with cover page, exec summary (EN + TH), severity breakdown table, category bar chart, per-finding cards (CVSS + CWE + payload + request/response + remediation + OWASP/ASVS/NIST mapping), and appendix. Bilingual throughout.
+- **Report PDF button** on every scan detail page.
+
+### Live scanner events (SSE)
+- `src/scanner/exploit-events.ts` — EventEmitter-backed session registry keyed by vulnerability ID; 60-second grace period after completion so late-joining SSE clients still replay the full log.
+- `/api/vulnerability/[id]/exploit-events` SSE endpoint + `useExploitEvents` React hook.
+- `LiveExploitPanel` UI — phase stepper (11 phases EN + TH), animated live-log terminal, elapsed counter, result summary grid.
+
+### Stealth browser
+- `headless: 'new'` mode (Chrome 112+ new headless ≈ real Chrome).
+- 22 DOM-level stealth patches including UA Client Hints (Sec-CH-UA), Worker-scoped `navigator.webdriver`, Battery API, timezone-locale consistency, outer window dimensions, media-devices enumeration.
+- Anti-detection launch args: `--disable-blink-features=AutomationControlled`, `--use-fake-ui-for-media-stream`, TLS-fingerprint-adjacent networking flags.
+- `headful` mode + `timezone` + `acceptLanguage` config fields.
+
+### `realMode` humane behaviour
+- `src/scanner/humanize.ts` — seeded PRNG, `humanType` (Gaussian-jittered per-key delay + 1% typo/backspace + punctuation beats), `humanClick` (quadratic-bezier mouse path + hover pause + variable click offset), `humanScroll` (wheel chunks with ease-out), `humanPause`, `simulateVisibilityFlicker`.
+- Viewport ladder (`1280×720`, `1366×768`, `1440×900`, `1536×864`, `1920×1080`) and UA pool (Chrome 131 Win/Mac/Linux + Edge 131 + Chrome 130 Win) randomised per `newPage` when `realMode` is enabled.
+- Opt-in via **Stealth mode** checkbox on the New Scan page — 3–10× slower, for targets behind Cloudflare Turnstile / PerimeterX / Datadome.
+
+### Internal target support
+- `SCANNER_ALLOW_INTERNAL_TARGETS=true` env flag unlocks scanning of `localhost`, `127.0.0.1`, RFC1918 (`10.x`, `172.16–31.x`, `192.168.x`), and `169.254.x`. Required for internal pentest use cases.
+- Development mode (`NODE_ENV=development`) always allows `localhost` by default — reachable only from the scanner host itself.
+- Strict boolean env parsing (`envBool`) — `SCANNER_X=false` / `=0` / `=no` now correctly parses to `false` (previously any non-empty string coerced to `true`).
+
+### UI: every page works, no dead-ends
+- **Settings page** is now a real controlled form — `settings.updateProfile` and `settings.updateNotificationPrefs` tRPC procedures persist changes, with audit-log trail. Previously every input was a `defaultValue` stub with no save handler.
+- **User menu dropdown** (Profile / Change Password / Logout) replaces the lone logout icon in the sidebar.
+- **Signup page** at `/signup` — bootstraps the first admin when the DB is empty, disables itself afterwards (admin-gated). `auth.isFirstRun` query controls the login-page "create first admin" link.
+- **Scope-approval auto-redirect** — creating a production / staging target drops the user on the scope-approval page with a pre-filled rationale template.
+- **Scope-required banner** on target detail when no active `ScopeApproval` exists.
+- **Inline ⚡ Exploit button** on scan detail SQLi rows → deep-links to `/vulnerabilities/:id?tab=sqli_exploit`.
+- **Dashboard heatmap widget** — target × category grid wires the previously-orphaned `dashboard.heatmapData` procedure.
+- **RBAC UI gating** — sidebar filtered via `canSeeRoute(role, route)` so viewers/developers don't see routes their role can't use.
+- **Pagination** on Targets, Scans, Vulnerabilities, and Reports list pages (20/page with auto-reset on filter change).
+- **i18n cleanup** — hardcoded Thai on Reports page replaced with `useT()` keys; both EN and TH bundles extended.
+
+### Runtime / operational
+- `SCANNER_ALLOW_INTERNAL_TARGETS`, tightened `envBool` parser, actionable error messages with step-by-step fix instructions (EN + TH).
+- `.injectproof-learning.json` added to `.gitignore` (regenerates on demand).
+
+---
+
 ## License
 
 Private — All rights reserved.

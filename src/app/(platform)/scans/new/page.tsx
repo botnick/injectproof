@@ -33,6 +33,7 @@ function NewScanContent() {
     const [targetId, setTargetId] = useState(preselectedTarget);
     const [scanType, setScanType] = useState('standard');
     const [selectedModules, setSelectedModules] = useState<string[]>([]);
+    const [realMode, setRealMode] = useState(false);
 
     const { data: targets } = trpc.target.list.useQuery({ pageSize: 100 });
     const createScan = trpc.scan.create.useMutation({
@@ -50,6 +51,7 @@ function NewScanContent() {
             targetId,
             scanType: scanType as any,
             modules: scanType === 'custom' ? selectedModules : undefined,
+            realMode: realMode || undefined,
         });
     };
 
@@ -111,6 +113,31 @@ function NewScanContent() {
                     </div>
                 )}
 
+                {/* Stealth-mode toggle — opt in to human-realistic timing
+                    (viewport/UA rotation, slow humane typing, scroll-before-
+                    interact). 3-10× slower. Recommended when the target
+                    sits behind Cloudflare Turnstile / PerimeterX / Datadome. */}
+                <div>
+                    <label className="input-label">Advanced</label>
+                    <label className="mt-2 flex items-start gap-3 p-3 rounded-xl cursor-pointer transition-all hover:bg-white/[0.02]"
+                        style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border-subtle)' }}>
+                        <input
+                            type="checkbox"
+                            checked={realMode}
+                            onChange={e => setRealMode(e.target.checked)}
+                            className="mt-1 rounded border-gray-600 bg-transparent text-brand-500 focus:ring-brand-500/20"
+                        />
+                        <div>
+                            <p className="text-sm font-medium text-[var(--text-primary)]">Stealth mode (slow, human-like timing)</p>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                                Randomised viewport + User-Agent per page, humane typing / mouse / scroll delays,
+                                think-time pauses between phases. Expect 3–10× longer scan duration. Use when the
+                                target is protected by modern bot-detection (Cloudflare Turnstile, PerimeterX, Datadome).
+                            </p>
+                        </div>
+                    </label>
+                </div>
+
                 {/* Submit */}
                 <div className="flex gap-3 pt-4 border-t border-[var(--border-subtle)]">
                     <button type="submit" disabled={!targetId || createScan.isPending} className="btn-primary flex items-center gap-2">
@@ -121,7 +148,17 @@ function NewScanContent() {
                 </div>
 
                 {createScan.isError && (
-                    <div className="bg-red-600/10 border border-red-600/20 rounded-lg px-4 py-2.5 text-red-400 text-sm">{createScan.error.message}</div>
+                    <div className="bg-red-600/10 border border-red-600/20 rounded-lg px-4 py-2.5 text-sm space-y-1">
+                        <p className="text-red-400">{createScan.error.message}</p>
+                        {createScan.error.message.includes('ScopeApproval') && targetId && (
+                            <p className="text-red-300">
+                                A security_lead must sign the engagement scope first.{' '}
+                                <Link href={`/targets/${targetId}/scope`} className="underline hover:text-white">
+                                    Open scope approval page →
+                                </Link>
+                            </p>
+                        )}
+                    </div>
                 )}
             </form>
         </div>

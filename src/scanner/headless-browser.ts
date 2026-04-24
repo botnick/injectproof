@@ -38,6 +38,26 @@ export interface HeadlessBrowserConfig {
     viewportWidth?: number;
     /** Viewport height */
     viewportHeight?: number;
+    /** Run with a visible window (MUCH harder to detect than headless-new).
+     *  Set true when target is behind Cloudflare Turnstile / PerimeterX /
+     *  Datadome / similar modern bot-detection. Costs more RAM + needs a
+     *  display ($DISPLAY on Linux — use Xvfb for servers). Default: false. */
+    headful?: boolean;
+    /** Timezone to report (IANA name, e.g. "Asia/Bangkok"). Falls back to
+     *  the host's timezone if unset — useful when you want a consistent
+     *  fingerprint across scans from different machines. */
+    timezone?: string;
+    /** Primary language tag (e.g. "th-TH,th;q=0.9,en;q=0.8"). Override when
+     *  target is geo-gated or your scans need to look Thai. */
+    acceptLanguage?: string;
+    /** Enable human-like behavioural timing — viewport/UA randomisation, slow
+     *  typing, mouse path curves, scroll-before-interact, think-time pauses.
+     *  Opt-in because it is 3-10× slower than the fast path; unsafe to
+     *  enable during CI scanner tests. Defaults to false. */
+    realMode?: boolean;
+    /** Random seed for realMode (makes timing reproducible). Undefined → real
+     *  randomness (non-deterministic per scan). */
+    realModeSeed?: number;
 }
 
 const DEFAULT_CONFIG = {
@@ -353,23 +373,59 @@ export class HeadlessBrowser {
         );
     }
 
-    /** Launch bundled Chromium via puppeteer.launch() with stealth config */
+    /** Launch bundled Chromium via puppeteer.launch() with stealth config.
+     *  Uses Chrome's NEW headless mode (--headless=new) when not headful —
+     *  the new mode shares the same runtime binary as headful Chrome, so its
+     *  JS + WebGL + navigator surface is ~99% identical to real Chrome,
+     *  unlike the old headless mode which was distinguishable by dozens of
+     *  feature checks. For the few anti-bot systems that still fingerprint
+     *  new-headless (Datadome / PerimeterX / Kasada), set config.headful=true
+     *  to launch a visible window. */
     private async launchBundled(): Promise<void> {
+        const acceptLang = this.config.acceptLanguage ?? 'en-US,en;q=0.9';
+        // Extract just the primary tag for --lang flag (e.g. "th-TH" from "th-TH,th;q=0.9").
+        const primaryLang = acceptLang.split(',')[0];
+
         this.browser = await puppeteer.launch({
-            headless: true,
-            // Remove the '--enable-automation' default flag (major detection vector)
-            ignoreDefaultArgs: ['--enable-automation'],
+            // 'new' = Chrome >= 112 new headless mode. Closer-to-real than the
+            // legacy 'true' boolean. When headful is explicitly requested we
+            // run with a visible window — costs RAM + needs $DISPLAY but beats
+            // the strongest bot-detection systems.
+            headless: this.config.headful ? false : 'new' as unknown as boolean,
+            // Strip the default flags that scream "automation" to the target.
+            ignoreDefaultArgs: [
+                '--enable-automation',
+                '--enable-blink-features=IdleDetection',
+            ],
             args: [
                 // ── Core stealth flags ──
-                '--disable-blink-features=AutomationControlled',  // #1 detection bypass
+                '--disable-blink-features=AutomationControlled',  // removes navigator.webdriver entirely
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--disable-infobars',
+                '--disable-infobars',                              // removes "Chrome is being controlled…" bar
 
                 // ── Fingerprint normalization ──
                 `--window-size=${this.config.viewportWidth},${this.config.viewportHeight}`,
-                '--lang=en-US,en',
-                '--disable-features=IsolateOrigins,site-per-process',
+                `--lang=${primaryLang}`,
+                '--disable-features=IsolateOrigins,site-per-process,AutomationControlled',
+
+                // ── Anti-detection networking tweaks ──
+                // These change the TLS JA3 fingerprint very slightly — enough
+                // to move us off the "known Puppeteer default" list without
+                // needing a custom TLS layer.
+                '--disable-features=TranslateUI,OptimizationHints,PrivacySandboxSettings4',
+                '--disable-search-engine-choice-screen',
+                '--disable-client-side-phishing-detection',
+                '--disable-component-update',
+                '--disable-domain-reliability',
+                '--no-pings',
+
+                // ── Media / permissions ──
+                // fake-ui-for-media-stream auto-allows camera/mic prompts; tests
+                // that rely on getUserMedia will at least get a stream instead
+                // of a blocking dialog that freezes the scan.
+                '--use-fake-ui-for-media-stream',
+                '--use-fake-device-for-media-stream',
 
                 // ── Resource optimization ──
                 '--disable-dev-shm-usage',
@@ -388,6 +444,12 @@ export class HeadlessBrowser {
                 '--no-default-browser-check',
                 '--password-store=basic',
                 '--use-mock-keychain',
+
+                // ── Hint: treat us as a real user interactively ──
+                '--disable-hang-monitor',
+                '--disable-prompt-on-repost',
+                '--disable-breakpad',
+                '--disable-crash-reporter',
             ],
             protocolTimeout: this.config.connectTimeout,
         });
@@ -454,21 +516,53 @@ export class HeadlessBrowser {
         // ── Stealth evasion patches ──
         await this.applyStealthPatches(page);
 
-        await page.setViewport({
-            width: this.config.viewportWidth,
-            height: this.config.viewportHeight,
-        });
+        // realMode: randomise viewport + UA per-page to look like a population
+        // of real users rather than one identifiable bot. Seeded so reruns are
+        // reproducible when a seed is supplied.
+        const { pickViewport, pickUserAgent } = await import('./humanize');
+        const humanOpts = { realMode: this.config.realMode, seed: this.config.realModeSeed };
+        const vp = this.config.realMode
+            ? pickViewport(humanOpts)
+            : { width: this.config.viewportWidth, height: this.config.viewportHeight };
+
+        await page.setViewport(vp);
+        // Update stored dims so other stealth patches (screen.width shim) pick
+        // up the randomised viewport.
+        (this.config as { viewportWidth: number; viewportHeight: number }).viewportWidth = vp.width;
+        (this.config as { viewportWidth: number; viewportHeight: number }).viewportHeight = vp.height;
 
         page.setDefaultNavigationTimeout(this.config.navigationTimeout);
         page.setDefaultTimeout(this.config.navigationTimeout);
 
-        // Set realistic user-agent (fallback to a real Chrome UA)
-        const ua = this.config.userAgent || REALISTIC_USER_AGENT;
+        // Set user-agent — realMode picks from a rotating pool; otherwise use
+        // the configured UA or the single realistic default.
+        const ua = this.config.realMode
+            ? pickUserAgent(humanOpts)
+            : (this.config.userAgent || REALISTIC_USER_AGENT);
         await page.setUserAgent(ua);
 
-        if (this.config.extraHeaders) {
-            await page.setExtraHTTPHeaders(this.config.extraHeaders);
+        // Merge Accept-Language into extraHeaders so every fetch carries it —
+        // modern anti-bot cross-checks UA claim vs TLS / header order / lang.
+        const headersToSet: Record<string, string> = {
+            'Accept-Language': this.config.acceptLanguage ?? 'en-US,en;q=0.9',
+            ...(this.config.extraHeaders ?? {}),
+        };
+        await page.setExtraHTTPHeaders(headersToSet);
+
+        // Timezone — apply via CDP when config.timezone set (falls back to the
+        // runtime-JS shim installed by applyStealthPatches).
+        if (this.config.timezone) {
+            try { await page.emulateTimezone(this.config.timezone); } catch { /* some TZ names rejected */ }
         }
+
+        // Permissions — quietly grant the common ones so a target's permission-
+        // check probe doesn't tripwire the bot-detection path.
+        try {
+            const ctx = page.browserContext();
+            await ctx.overridePermissions(await page.url() !== 'about:blank' ? page.url() : (this.config.extraHeaders?.['Origin'] || 'http://localhost'), [
+                'geolocation', 'notifications', 'clipboard-read', 'clipboard-write',
+            ] as unknown as import('puppeteer').Permission[]);
+        } catch { /* URL not yet set or origin-invalid — skipped */ }
 
         this.activePages.add(page);
         page.once('close', () => {
@@ -703,6 +797,131 @@ export class HeadlessBrowser {
             };
             // Hide our toString override itself
             patchedFns.add(Function.prototype.toString);
+        });
+
+        // 17. User-Agent Client Hints (Sec-CH-UA / navigator.userAgentData) —
+        //     modern bot-detection (Cloudflare Turnstile / PerimeterX) reads
+        //     this instead of the classic UA string. Headless Chrome often
+        //     reports brand "HeadlessChrome" here.
+        const uaBrand = 'Google Chrome';
+        await page.evaluateOnNewDocument((brand: string) => {
+            if (!('userAgentData' in navigator)) return;
+            const ua = (navigator as unknown as Record<string, unknown>).userAgentData as {
+                brands: Array<{ brand: string; version: string }>;
+                mobile: boolean;
+                platform: string;
+                getHighEntropyValues: (hints: string[]) => Promise<Record<string, unknown>>;
+            };
+            const fakeBrands = [
+                { brand: 'Not_A Brand', version: '8' },
+                { brand: brand, version: '131' },
+                { brand: 'Chromium', version: '131' },
+            ];
+            Object.defineProperty(ua, 'brands', { get: () => fakeBrands });
+            Object.defineProperty(ua, 'mobile', { get: () => false });
+            Object.defineProperty(ua, 'platform', { get: () => 'Windows' });
+            const origGHEV = ua.getHighEntropyValues.bind(ua);
+            ua.getHighEntropyValues = (hints: string[]) => origGHEV(hints).then((values) => ({
+                ...values,
+                brands: fakeBrands,
+                mobile: false,
+                platform: 'Windows',
+                platformVersion: '15.0.0',
+                architecture: 'x86',
+                bitness: '64',
+                model: '',
+                uaFullVersion: '131.0.6778.109',
+                fullVersionList: fakeBrands.map(b => ({ ...b, version: b.version + '.0.6778.109' })),
+            }));
+        }, uaBrand);
+
+        // 18. Worker / SharedWorker webdriver flag — detection script often
+        //     spawns a web worker and checks navigator.webdriver inside it.
+        //     We patch the Worker constructor so any script loaded into a
+        //     fresh worker inherits our webdriver=false override.
+        await page.evaluateOnNewDocument(() => {
+            const origWorker = window.Worker;
+            if (!origWorker) return;
+            const patchedWorkerSrc = `Object.defineProperty(navigator,'webdriver',{get:()=>false});`;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (window as any).Worker = function (url: string | URL, opts?: WorkerOptions) {
+                try {
+                    if (typeof url === 'string' && url.startsWith('blob:')) {
+                        // Can't easily prepend to an existing Blob URL — let it through.
+                        return new origWorker(url, opts);
+                    }
+                    // For module-style workers, best-effort: patch via importScripts won't work;
+                    // spawn an override worker that posts a patched navigator before importScripts.
+                    const wrapped = new Blob(
+                        [`${patchedWorkerSrc}importScripts(${JSON.stringify(String(url))});`],
+                        { type: 'application/javascript' },
+                    );
+                    return new origWorker(URL.createObjectURL(wrapped), opts);
+                } catch {
+                    return new origWorker(url, opts);
+                }
+            } as unknown as typeof Worker;
+            (window as unknown as { Worker: typeof Worker }).Worker.prototype = origWorker.prototype;
+        });
+
+        // 19. Battery API fake — some anti-bot systems check whether Battery
+        //     resolves to a real object or rejects (Chrome headful returns a
+        //     BatteryManager; some headless environments reject the promise).
+        await page.evaluateOnNewDocument(() => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (navigator as any).getBattery = () => Promise.resolve({
+                charging: true,
+                chargingTime: 0,
+                dischargingTime: Infinity,
+                level: 0.88,
+                addEventListener: () => { },
+                removeEventListener: () => { },
+                dispatchEvent: () => true,
+                onchargingchange: null, onchargingtimechange: null,
+                ondischargingtimechange: null, onlevelchange: null,
+            });
+        });
+
+        // 20. Intl/Timezone consistency — the runtime timezone reported by
+        //     Intl.DateTimeFormat must match the value the scanner wants to
+        //     report (default host TZ, or explicit config override). Anti-
+        //     bot systems cross-check UA-declared locale vs IP-geo vs TZ.
+        const tz = this.config.timezone;
+        if (tz) {
+            await page.evaluateOnNewDocument((tzName: string) => {
+                try {
+                    const origResolve = Intl.DateTimeFormat.prototype.resolvedOptions;
+                    Intl.DateTimeFormat.prototype.resolvedOptions = function () {
+                        return { ...origResolve.call(this), timeZone: tzName };
+                    };
+                } catch { /* non-critical */ }
+            }, tz);
+            // CDP-level timezone override — more robust than JS shim alone.
+            try { await page.emulateTimezone(tz); } catch { /* some endpoints reject TZ names */ }
+        }
+
+        // 21. outerWidth / outerHeight must match (headless often reports 0).
+        await page.evaluateOnNewDocument((w: number, h: number) => {
+            try {
+                Object.defineProperty(window, 'outerWidth', { get: () => w });
+                Object.defineProperty(window, 'outerHeight', { get: () => h + 74 });
+            } catch { /* non-critical */ }
+        }, this.config.viewportWidth, this.config.viewportHeight);
+
+        // 22. Media devices — real Chrome reports a list of enumerated devices
+        //     (even without a connected camera, fake default entries are listed).
+        await page.evaluateOnNewDocument(() => {
+            if (navigator.mediaDevices && typeof navigator.mediaDevices.enumerateDevices === 'function') {
+                const orig = navigator.mediaDevices.enumerateDevices.bind(navigator.mediaDevices);
+                navigator.mediaDevices.enumerateDevices = async () => {
+                    const real = await orig();
+                    if (real.length > 0) return real;
+                    return [
+                        { deviceId: 'default', kind: 'audioinput', label: '', groupId: 'default' } as MediaDeviceInfo,
+                        { deviceId: 'default', kind: 'audiooutput', label: '', groupId: 'default' } as MediaDeviceInfo,
+                    ];
+                };
+            }
         });
     }
 

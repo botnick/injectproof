@@ -10,6 +10,8 @@ import { deepExploitSqli, type SqliExploitResult, type DatabaseInfo } from './sq
 import { buildRequestString, buildResponseString } from '@/lib/utils';
 import { COMMON_CVSS_VECTORS, calculateCvssScore, generateCvssVector } from '@/lib/cvss';
 import { getCweEntry } from '@/lib/cwe-database';
+import { SmartFormFiller, inferFieldSemantic, generateValue } from './smart-form-filler';
+import { scanFormForXss, type XssFormTarget, type SmartFormXssConfig } from './smart-form-xss';
 
 // ============================================================
 // TYPES
@@ -73,6 +75,12 @@ export interface SmartFormScanConfig {
     maxFormsPerPage?: number;
     maxPayloadsPerField?: number;
     enableDeepExploit?: boolean;
+    /** Enable form-level XSS testing alongside SQLi. Default: true. */
+    enableXss?: boolean;
+    /** Aggressiveness level 1-5 (sqlmap --level). Higher = more payload variants. */
+    level?: 1 | 2 | 3 | 4 | 5;
+    /** Human-realistic timing mode. See HeadlessBrowserConfig.realMode. */
+    realMode?: boolean;
 }
 
 // ============================================================
@@ -174,6 +182,7 @@ export class SmartFormScanner {
             navigationTimeout: this.config.requestTimeout,
             userAgent: this.config.userAgent,
             extraHeaders: { ...this.config.customHeaders, ...this.config.authHeaders },
+            realMode: this.config.realMode,
         };
 
         this.browser = new HeadlessBrowser(browserConfig);
@@ -253,6 +262,45 @@ export class SmartFormScanner {
                         }
 
                         break; // Found SQLi in this form, move to next form
+                    }
+                }
+
+                // Phase 3d: Form-level XSS — runs AFTER SQLi probe because an
+                // exploited SQLi often persists into the admin UI, giving us
+                // a pre-authenticated surface to test for stored XSS. The XSS
+                // scanner uses SmartFormFiller to keep validation passing and
+                // reaches for executable contexts (html-body, attribute,
+                // javascript: URIs, script-block breakout).
+                if (this.config.enableXss !== false && injectableFields.length > 0) {
+                    this.addLog('xss', `Running form-level XSS probe (level=${this.config.level ?? 2})`);
+                    try {
+                        const xssTarget: XssFormTarget = {
+                            url,
+                            formSelector: form.formSelector,
+                            submitSelector: form.submitSelector,
+                            method: form.method,
+                            action: form.action,
+                            fields: form.fields.map(f => ({
+                                name: f.name, type: f.type, selector: f.selector,
+                                isInjectable: f.isInjectable, isHidden: f.isHidden,
+                                defaultValue: f.defaultValue, placeholder: f.placeholder,
+                            })),
+                        };
+                        const xssCfg: SmartFormXssConfig = {
+                            baseUrl: this.config.baseUrl,
+                            requestTimeout: this.config.requestTimeout,
+                            userAgent: this.config.userAgent,
+                            customHeaders: this.config.customHeaders,
+                            authHeaders: this.config.authHeaders,
+                            level: this.config.level ?? 2,
+                            skipFieldNames: form.csrfField ? [form.csrfField] : undefined,
+                            onLog: (msg) => this.addLog('xss', msg),
+                        };
+                        const xssFindings = await scanFormForXss(page, xssTarget, xssCfg);
+                        for (const f of xssFindings) results.push(f);
+                        this.addLog('xss', `XSS phase found ${xssFindings.length} issue(s) on this form`);
+                    } catch (err) {
+                        this.addLog('xss', 'Form XSS probe crashed', String(err));
                     }
                 }
 
@@ -831,15 +879,89 @@ export class SmartFormScanner {
         }
     }
 
-    private async fillFormExcept(page: Page, form: SmartFormTarget, exceptField: string, defaultValue: string): Promise<void> {
+    private async fillFormExcept(page: Page, form: SmartFormTarget, exceptField: string, _defaultValue: string): Promise<void> {
+        // SmartFormFiller-powered: infer every non-target field's semantic
+        // (email / phone / credit-card / date / country / …) and fill with a
+        // realistic validated value so the form actually submits past the
+        // validator. Also handles radio/checkbox/select/file/date/color/range
+        // — the naive string-type approach misses all of those on real SPAs.
+        const filler = new SmartFormFiller();
         for (const field of form.fields) {
-            if (field.name === exceptField || field.isHidden) continue;
-            if (!field.isInjectable) continue;
+            if (field.name === exceptField) continue;
+
+            // Map SmartField → richer FormField shape so semantic inference
+            // has all the metadata it needs.
+            const rich: FormField = {
+                name: field.name,
+                type: field.type,
+                value: field.defaultValue || undefined,
+                placeholder: field.placeholder || undefined,
+                hidden: field.isHidden,
+                selector: field.selector,
+            };
+
+            // Hidden / submit / button — keep existing value (preserves CSRF tokens).
+            const t = (field.type ?? '').toLowerCase();
+            if (field.isHidden || t === 'hidden' || t === 'submit' || t === 'button' || t === 'reset') {
+                continue;
+            }
+
+            const inferred = inferFieldSemantic(rich);
+            const value = generateValue(inferred);
+
             try {
-                const val = field.defaultValue || (field.type === 'email' ? 'test@test.com' : defaultValue);
-                await this.clearAndType(page, field.selector, val);
-            } catch { /* skip */ }
+                if (t === 'radio') {
+                    // Click the matching radio in the group — fallback to first.
+                    await page.evaluate((name: string, wanted: string) => {
+                        const group = Array.from(document.querySelectorAll<HTMLInputElement>(`input[type="radio"][name="${CSS.escape(name)}"]`));
+                        const target = group.find(el => el.value === wanted) ?? group[0];
+                        if (target && !target.checked) { target.click(); }
+                    }, field.name, value);
+                    continue;
+                }
+                if (t === 'checkbox') {
+                    await page.evaluate((sel: string) => {
+                        const el = document.querySelector<HTMLInputElement>(sel);
+                        if (el && !el.checked) el.click();
+                    }, field.selector);
+                    continue;
+                }
+                if (t === 'select' || t === 'select-one' || t === 'select-multiple') {
+                    // page.select expects the option VALUE — fall back to first
+                    // real option if our inferred pick isn't present.
+                    const chosen = await page.evaluate((sel: string, wanted: string) => {
+                        const el = document.querySelector<HTMLSelectElement>(sel);
+                        if (!el) return null;
+                        const opts = Array.from(el.options).filter(o => o.value && !/^(please|select|choose|-- ?none)$/i.test(o.text));
+                        const match = opts.find(o => o.value === wanted) ?? opts[0] ?? el.options[0];
+                        if (!match) return null;
+                        el.value = match.value;
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                        return match.value;
+                    }, field.selector, value);
+                    if (chosen === null) continue;
+                    continue;
+                }
+                if (t === 'file') {
+                    // Skip — file uploads are handled separately in upload-specific probes.
+                    continue;
+                }
+                if (t === 'range' || t === 'number' || t === 'date' || t === 'time' ||
+                    t === 'datetime-local' || t === 'month' || t === 'week' || t === 'color') {
+                    await page.evaluate((sel: string, v: string) => {
+                        const el = document.querySelector<HTMLInputElement>(sel);
+                        if (!el) return;
+                        el.value = v;
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                    }, field.selector, value);
+                    continue;
+                }
+                // Default text-like — clear and type so React/Vue see the change.
+                await this.clearAndType(page, field.selector, value);
+            } catch { /* best-effort — a single flaky field never stops the probe */ }
         }
+        void filler; // linted-happy reference
     }
 
     private async submitFormAndWait(page: Page, form: SmartFormTarget): Promise<{ content: string; time: number; url: string } | null> {

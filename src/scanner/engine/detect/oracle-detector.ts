@@ -75,7 +75,7 @@ interface ProbeResponse {
 
 async function probeOnce(
     baseUrl: string,
-    method: 'GET' | 'POST',
+    method: string,
     param: DiscoveredParam,
     value: string,
     input: OracleDetectionInput,
@@ -88,18 +88,90 @@ async function probeOnce(
         };
         let fetchUrl = baseUrl;
         let body: string | undefined;
-        if (param.type === 'query') {
-            const u = new URL(baseUrl);
-            u.searchParams.set(param.name, value);
-            fetchUrl = u.toString();
-        } else {
-            headers['Content-Type'] = 'application/x-www-form-urlencoded';
-            body = `${encodeURIComponent(param.name)}=${encodeURIComponent(value)}`;
+        let actualMethod: string = method;
+
+        switch (param.type) {
+            case 'query': {
+                const u = new URL(baseUrl);
+                u.searchParams.set(param.name, value);
+                fetchUrl = u.toString();
+                break;
+            }
+            case 'body': {
+                headers['Content-Type'] = 'application/x-www-form-urlencoded';
+                body = `${encodeURIComponent(param.name)}=${encodeURIComponent(value)}`;
+                if (actualMethod === 'GET' || actualMethod === 'HEAD') actualMethod = 'POST';
+                break;
+            }
+            case 'json': {
+                headers['Content-Type'] = 'application/json';
+                // Build a single-key JSON body. For nested keys (a.b.c), build the
+                // nested object so APIs that read req.body.a.b.c receive the payload.
+                const buildNested = (path: string[], leaf: string): unknown => {
+                    if (path.length === 0) return leaf;
+                    const [head, ...rest] = path;
+                    return { [head]: buildNested(rest, leaf) };
+                };
+                const segs = param.name.split('.').filter(Boolean);
+                body = JSON.stringify(segs.length > 1 ? buildNested(segs, value) : { [param.name]: value });
+                if (actualMethod === 'GET' || actualMethod === 'HEAD') actualMethod = 'POST';
+                break;
+            }
+            case 'header': {
+                // Header injection — User-Agent, Referer, X-Forwarded-For, etc.
+                headers[param.name] = value;
+                break;
+            }
+            case 'cookie': {
+                // Append to existing Cookie header so we don't trample auth cookies
+                // also passed via extraHeaders (e.g., session cookies for logged-in scans).
+                const existing = headers['Cookie'] ?? headers['cookie'] ?? '';
+                const sep = existing && !existing.endsWith(';') ? '; ' : '';
+                headers['Cookie'] = `${existing}${sep}${param.name}=${value}`;
+                break;
+            }
+            case 'path': {
+                // Path-segment injection — replaces a literal placeholder of the
+                // form {paramName} or :paramName in the URL. If neither exists,
+                // appends as a query param to keep the probe useful.
+                const u = new URL(baseUrl);
+                const placeholder1 = `{${param.name}}`;
+                const placeholder2 = `:${param.name}`;
+                if (u.pathname.includes(placeholder1)) {
+                    u.pathname = u.pathname.replace(placeholder1, encodeURIComponent(value));
+                } else if (u.pathname.includes(placeholder2)) {
+                    u.pathname = u.pathname.replace(placeholder2, encodeURIComponent(value));
+                } else {
+                    u.searchParams.set(param.name, value);
+                }
+                fetchUrl = u.toString();
+                break;
+            }
+            case 'multipart': {
+                // multipart/form-data — single field. Useful for upload endpoints
+                // that read form fields alongside the file binary.
+                const boundary = `----InjectProofBoundary${Math.random().toString(36).slice(2, 10)}`;
+                headers['Content-Type'] = `multipart/form-data; boundary=${boundary}`;
+                body = `--${boundary}\r\n` +
+                    `Content-Disposition: form-data; name="${param.name}"\r\n\r\n` +
+                    `${value}\r\n` +
+                    `--${boundary}--\r\n`;
+                if (actualMethod === 'GET' || actualMethod === 'HEAD') actualMethod = 'POST';
+                break;
+            }
+            default: {
+                // Unknown types fall back to query so the probe is still useful.
+                const u = new URL(baseUrl);
+                u.searchParams.set(param.name, value);
+                fetchUrl = u.toString();
+                break;
+            }
         }
+
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), input.requestTimeout);
         const res = await fetch(fetchUrl, {
-            method: body ? 'POST' : method,
+            method: actualMethod,
             headers,
             body,
             signal: controller.signal,
@@ -134,7 +206,7 @@ async function probeOnce(
                     const ctrl2 = new AbortController();
                     const t2 = setTimeout(() => ctrl2.abort(), input.requestTimeout);
                     try {
-                        const r2 = await fetch(fetchUrl, { method: body ? 'POST' : method, headers: adjHeaders, body, signal: ctrl2.signal, redirect: 'manual' });
+                        const r2 = await fetch(fetchUrl, { method: actualMethod, headers: adjHeaders, body, signal: ctrl2.signal, redirect: 'manual' });
                         clearTimeout(t2);
                         const b2 = await r2.text();
                         const h2: Record<string, string> = {};

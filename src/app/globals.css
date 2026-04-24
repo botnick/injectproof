@@ -373,6 +373,11 @@
     from { opacity: 0; transform: translateY(4px); }
     to { opacity: 1; transform: translateY(0); }
   }
+  /* Live-log entries slide in from the right with a subtle horizontal drift. */
+  @keyframes fadeInSlide {
+    from { opacity: 0; transform: translateX(8px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
   .status-live {
     width: 8px; height: 8px; border-radius: 999px; background: var(--status-active);
     box-shadow: 0 0 8px var(--status-glow);

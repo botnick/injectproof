@@ -4,7 +4,7 @@
 import { trpc } from '@/trpc/client';
 import {
     Target, Radar, Bug, AlertTriangle, CheckCircle,
-    Activity, TrendingUp, Sparkles,
+    Activity, TrendingUp, Sparkles, Grid3x3,
 } from 'lucide-react';
 import {
     PieChart, Pie, Cell, Tooltip, ResponsiveContainer, AreaChart, Area,
@@ -24,6 +24,7 @@ export default function DashboardPage() {
     const { data: severityData } = trpc.dashboard.severityDistribution.useQuery();
     const { data: trendData } = trpc.dashboard.trendData.useQuery();
     const { data: recentScans } = trpc.dashboard.recentScans.useQuery(5);
+    const { data: heatmapData } = trpc.dashboard.heatmapData.useQuery();
 
     if (statsLoading) {
         return (
@@ -143,6 +144,9 @@ export default function DashboardPage() {
                 </div>
             </div>
 
+            {/* Heatmap — target × category grid (wired to dashboard.heatmapData) */}
+            <HeatmapCard data={heatmapData ?? []} />
+
             {/* Recent Scans */}
             <div className="glass-card">
                 <div className="flex items-center justify-between mb-4 relative z-10">
@@ -245,5 +249,89 @@ function StatusBadge({ status }: { status: string }) {
             {status === 'running' && <span className="status-live" />}
             {status}
         </span>
+    );
+}
+
+// ── Heatmap (target × category grid) ────────────────────────────────────
+// Renders rows of targets across columns of vulnerability categories,
+// cell colour encodes max severity, cell number encodes count. Wires the
+// previously-orphaned dashboard.heatmapData tRPC procedure into the UI.
+
+const HEATMAP_SEVERITY_BG: Record<string, string> = {
+    critical: 'bg-red-500/50',
+    high:     'bg-orange-500/40',
+    medium:   'bg-yellow-500/30',
+    low:      'bg-blue-500/25',
+    info:     'bg-gray-500/20',
+};
+
+type HeatmapCell = { targetName: string; category: string; count: number; maxSeverity: string };
+
+function HeatmapCard({ data }: { data: HeatmapCell[] }) {
+    // Group into { target → { category → cell } }
+    const targets = Array.from(new Set(data.map(d => d.targetName))).sort();
+    const categories = Array.from(new Set(data.map(d => d.category))).sort();
+    const byTarget: Record<string, Record<string, HeatmapCell>> = {};
+    for (const cell of data) {
+        if (!byTarget[cell.targetName]) byTarget[cell.targetName] = {};
+        byTarget[cell.targetName][cell.category] = cell;
+    }
+
+    return (
+        <div className="glass-card">
+            <div className="flex items-center justify-between mb-4 relative z-10">
+                <h3 className="text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2">
+                    <Grid3x3 className="w-4 h-4 text-brand-400" />
+                    Vulnerability Heatmap — targets × categories
+                </h3>
+                <span className="text-[11px] text-gray-500 font-mono">
+                    {targets.length} target(s) · {categories.length} categor{categories.length === 1 ? 'y' : 'ies'}
+                </span>
+            </div>
+            {data.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-gray-700 text-sm gap-2 relative z-10">
+                    <Grid3x3 className="w-8 h-8 text-gray-800" />
+                    <span>No vulnerabilities yet — the heatmap populates after your first scan finds issues.</span>
+                </div>
+            ) : (
+                <div className="overflow-x-auto relative z-10">
+                    <table className="text-xs w-full">
+                        <thead>
+                            <tr>
+                                <th className="text-left py-2 pr-3 text-[10px] font-semibold uppercase tracking-wider text-gray-500">Target</th>
+                                {categories.map(cat => (
+                                    <th key={cat} className="py-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500 text-center">
+                                        {cat.replace(/_/g, ' ')}
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {targets.map(target => (
+                                <tr key={target} className="border-t border-white/[0.03]">
+                                    <td className="py-2 pr-3 text-sm text-[var(--text-primary)] font-medium whitespace-nowrap">{target}</td>
+                                    {categories.map(cat => {
+                                        const cell = byTarget[target]?.[cat];
+                                        if (!cell) {
+                                            return <td key={cat} className="py-2 px-2 text-center text-gray-800">·</td>;
+                                        }
+                                        return (
+                                            <td key={cat} className="py-2 px-2 text-center">
+                                                <span
+                                                    className={`inline-flex items-center justify-center w-8 h-8 rounded-lg font-mono text-xs font-semibold text-white ${HEATMAP_SEVERITY_BG[cell.maxSeverity] ?? 'bg-gray-500/30'}`}
+                                                    title={`${cell.count} ${cell.category} · max severity: ${cell.maxSeverity}`}
+                                                >
+                                                    {cell.count}
+                                                </span>
+                                            </td>
+                                        );
+                                    })}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </div>
     );
 }

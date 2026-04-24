@@ -42,6 +42,10 @@ reports/
 screenshots/
 *.pcap
 
+# ------------- Runtime State ----------------------
+# Cross-scan learning cache written by the bandit / oracle — regenerates on demand.
+.injectproof-learning.json
+
 # ---------- Payload Repositories (cloned) ---------
 .payload_repos/
 

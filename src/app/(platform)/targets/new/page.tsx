@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { trpc } from '@/trpc/client';
-import { Target, ArrowLeft, Globe, Shield, Save, Lock, Plus, Trash2, KeyRound } from 'lucide-react';
+import { Target, ArrowLeft, Globe, Shield, Save, Lock, Plus, Trash2, KeyRound, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 
 function buildAuthConfig(
@@ -32,7 +32,7 @@ export default function NewTargetPage() {
         name: '',
         baseUrl: '',
         description: '',
-        environment: 'production',
+        environment: 'development',
         criticality: 'medium',
         authType: 'none',
         maxCrawlDepth: 10,
@@ -44,7 +44,18 @@ export default function NewTargetPage() {
     const [authHeaders, setAuthHeaders] = useState([{ key: '', value: '' }]);
 
     const createMutation = trpc.target.create.useMutation({
-        onSuccess: (data) => router.push(`/targets/${data.id}`),
+        onSuccess: (data) => {
+            // Production / staging targets require a signed scope approval
+            // before scans can start. Auto-navigate the user to the scope
+            // page with a pre-filled rationale so they don't have to hunt
+            // for it. Development targets go straight to the detail view.
+            const needsScope = form.environment === 'production' || form.environment === 'staging';
+            if (needsScope) {
+                router.push(`/targets/${data.id}/scope?rationale=auto-created`);
+            } else {
+                router.push(`/targets/${data.id}`);
+            }
+        },
     });
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -95,6 +106,11 @@ export default function NewTargetPage() {
                         <label className="input-label">Base URL *</label>
                         <input type="url" value={form.baseUrl} onChange={e => setForm({ ...form, baseUrl: e.target.value })}
                             placeholder="https://example.com" className="input-field font-mono" required />
+                        <p className="mt-1.5 text-[10px] text-gray-500 leading-relaxed">
+                            Accepts <code className="text-gray-400">http://</code> or <code className="text-gray-400">https://</code>.
+                            Internal hosts (<code className="text-gray-400">localhost</code>, <code className="text-gray-400">192.168.x</code>, <code className="text-gray-400">10.x</code>, <code className="text-gray-400">172.16–31.x</code>)
+                            require <code className="text-amber-400">SCANNER_ALLOW_INTERNAL_TARGETS=true</code> in the server .env file.
+                        </p>
                     </div>
                     <div>
                         <label className="input-label">Description</label>
@@ -112,11 +128,20 @@ export default function NewTargetPage() {
                         <div>
                             <label className="input-label">Environment</label>
                             <select value={form.environment} onChange={e => setForm({ ...form, environment: e.target.value })} className="input-field">
-                                <option value="production">Production</option>
-                                <option value="staging">Staging</option>
                                 <option value="development">Development</option>
                                 <option value="internal">Internal</option>
+                                <option value="staging">Staging</option>
+                                <option value="production">Production</option>
                             </select>
+                            {(form.environment === 'production' || form.environment === 'staging') && (
+                                <div className="mt-2 flex items-start gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                                    <span>
+                                        Scans against <strong>{form.environment}</strong> targets require a scope approval signed by a security_lead before scanning.
+                                        You can add one from the target's <strong>Scope</strong> page after creating it.
+                                    </span>
+                                </div>
+                            )}
                         </div>
                         <div>
                             <label className="input-label">Business Criticality</label>

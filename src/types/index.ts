@@ -104,6 +104,7 @@ export const VulnCategory = {
     CICD_POISONING: 'cicd_poisoning',
     POST_EXPLOITATION: 'post_exploitation',
     BUSINESS_LOGIC: 'business_logic',
+    ACCESS_CONTROL: 'access-control',
 } as const;
 export type VulnCategory = (typeof VulnCategory)[keyof typeof VulnCategory];
 
@@ -225,6 +226,20 @@ export interface FormField {
     value?: string;
     required?: boolean;
     hidden?: boolean;
+    /** Optional metadata — crawlers that emit rich form descriptors populate
+     *  these so SmartFormFiller can infer field semantics accurately. */
+    id?: string;
+    label?: string;
+    placeholder?: string;
+    autocomplete?: string;
+    pattern?: string;
+    maxLength?: number;
+    min?: number | string;
+    max?: number | string;
+    /** Select / radio / checkbox options. */
+    options?: Array<{ value: string; label?: string }>;
+    /** CSS/XPath selector for driving the live page (Puppeteer). */
+    selector?: string;
 }
 
 /** Scan configuration passed to the scan engine */
@@ -245,6 +260,11 @@ export interface ScanConfig {
     userAgent?: string;
     /** Enable headless browser crawling (Lightpanda/Chrome via CDP) */
     enableHeadless?: boolean;
+    /** Humane-timing mode — randomised viewport + UA per page, realistic
+     *  typing/mouse/scroll timing on form interactions. 3-10× slower than
+     *  the fast default, so off by default. Turn on when assessing
+     *  targets behind Cloudflare Turnstile / PerimeterX / Datadome. */
+    realMode?: boolean;
     /** CDP WebSocket endpoint (e.g. ws://127.0.0.1:9222 for Lightpanda) */
     cdpEndpoint?: string;
     /** Scan tier — controls which detector sets and post-exploit modules run. */
@@ -497,4 +517,6 @@ export type {
     FileReadResult,
     OsCommandResult,
     TestedTechnique,
+    RemediationGuidance,
+    EvidenceSummary,
 } from '@/scanner/sqli-exploiter';

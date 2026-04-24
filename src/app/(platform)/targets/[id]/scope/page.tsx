@@ -4,12 +4,16 @@
 
 'use client';
 
-import { use, useState } from 'react';
+import { use, useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { trpc } from '@/trpc/client';
 import { ShieldCheck, AlertTriangle, Trash2, Clock, FileText, Unlock } from 'lucide-react';
 
 export default function ScopeApprovalPage({ params }: { params: Promise<{ id: string }> }) {
     const { id: targetId } = use(params);
+    const searchParams = useSearchParams();
+    const autoRationale = searchParams.get('rationale');
+
     const { data: me } = trpc.auth.me.useQuery();
     const { data: target } = trpc.target.getById.useQuery(targetId);
     const { data: approvals, refetch } = trpc.scope.listForTarget.useQuery({ targetId });
@@ -28,6 +32,24 @@ export default function ScopeApprovalPage({ params }: { params: Promise<{ id: st
         rationale: '',
         expiresIso: '',
     });
+
+    // When the user arrives from target-create (prod/staging auto-nav) with
+    // ?rationale=auto-created, pre-fill a sensible default rationale so the
+    // form is one "Sign" click away for a security_lead. Only runs once and
+    // only when target + form are hydrated but form.rationale is still blank.
+    useEffect(() => {
+        if (autoRationale === 'auto-created' && target && !form.rationale) {
+            setForm(prev => ({
+                ...prev,
+                rationale:
+                    `Initial scope approval for newly registered ${target.environment} target "${target.name}" ` +
+                    `(${target.baseUrl}).\n\n` +
+                    `Reviewed-by: (fill in your name)\n` +
+                    `Engagement ticket: (fill in)\n` +
+                    `Signed: ${new Date().toISOString().slice(0, 10)}`,
+            }));
+        }
+    }, [autoRationale, target, form.rationale]);
 
     function submitCreate() {
         const methods = form.allowedMethodsText

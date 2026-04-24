@@ -10,8 +10,10 @@ import {
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { LanguageToggle } from '@/components/ui/language-toggle';
+import { UserMenu } from '@/components/ui/user-menu';
+import { canSeeRoute } from '@/lib/rbac';
 
-const navItems = [
+const NAV_ITEMS = [
     { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/targets', label: 'Targets', icon: Target },
     { href: '/scans', label: 'Scans', icon: Radar },
@@ -82,9 +84,12 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
                     )}
                 </div>
 
-                {/* Navigation */}
+                {/* Navigation — filtered by role. Viewers / developers never see
+                    Targets or Scans in the sidebar; those routes still exist at
+                    the URL level (graceful 403 if accessed directly) but we
+                    don't advertise them. */}
                 <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-                    {navItems.map((item) => {
+                    {NAV_ITEMS.filter(item => canSeeRoute(user.role, item.href)).map((item) => {
                         const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
                         return (
                             <Link
@@ -107,29 +112,9 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
                     {collapsed ? <ChevronRight className="w-4 h-4" /> : <><ChevronLeft className="w-4 h-4" /><span className="text-xs">Collapse</span></>}
                 </button>
 
-                {/* User */}
+                {/* User menu — dropdown with Profile / Password / Logout */}
                 <div className="p-3 border-t border-[var(--border-subtle)]">
-                    <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-                            style={{
-                                background: 'var(--accent-glow)',
-                                border: '1px solid var(--border-accent)',
-                            }}
-                        >
-                            <span className="text-xs font-bold" style={{ color: 'var(--accent)' }}>{user.name.charAt(0).toUpperCase()}</span>
-                        </div>
-                        {!collapsed && (
-                            <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-[var(--text-primary)] truncate">{user.name}</p>
-                                <p className="text-[11px] text-[var(--text-muted)] truncate capitalize">{user.role.replace('_', ' ')}</p>
-                            </div>
-                        )}
-                        {!collapsed && (
-                            <button onClick={handleLogout} className="text-[var(--text-muted)] hover:text-red-500 transition-colors duration-300" title="Logout">
-                                <LogOut className="w-4 h-4" />
-                            </button>
-                        )}
-                    </div>
+                    <UserMenu user={user} collapsed={collapsed} onLogout={handleLogout} />
                 </div>
             </aside>
 

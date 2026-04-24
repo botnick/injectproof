@@ -326,13 +326,19 @@ export async function detectSqli(
                             maxTablesPerDb: 20,
                             maxColumnsPerTable: 30,
                             maxRowsPerTable: 5,
+                            // Pass the param's original value so adaptive breakout discovery
+                            // can preserve it as a prefix (critical for numeric IDs).
+                            originalParamValue: param.value,
                         },
                     );
                 } catch (err) {
                     await logCatch(config, 'detectors.sqli.deep-exploit', `deepExploitSqli(param=${param.name})`, err);
                 }
 
-                if (exploitResult) {
+                // exploitResult is now always non-null — it carries diagnostic data
+                // even when no extraction technique succeeded. Persist it always
+                // so the UI can render either the rich tree OR the diagnostic panel.
+                if (exploitResult && (exploitResult.databases.length > 0 || exploitResult.currentDatabase)) {
                     sqliExploitData = JSON.stringify(exploitResult);
                     confidence = 'high'; // Exploitation proves it's real
                     detectionMethod = `${detectionMethod} + deep exploitation (${exploitResult.technique})`;
@@ -463,10 +469,63 @@ export async function detectSqli(
             if (stackedResult.supported) {
                 const cwe = getCweEntry('CWE-89');
                 const cvssMetrics = COMMON_CVSS_VECTORS.sqli;
+
+                // Stacked-query support implies the backend executes attacker-controlled SQL.
+                // Run deepExploitSqli so the vuln carries Havij-style evidence (schema, rows,
+                // current user/db/host) — otherwise the "SQLi Exploit" tab never appears.
+                // Pass the DBMS we just confirmed via stacked detection so the exploit
+                // engine skips fingerprinting (saves ~10s + works for sqlite which has no SLEEP).
+                const stackedDbms = stackedResult.dbms.toLowerCase();
+                const dbmsHint =
+                    stackedDbms === 'mysql' || stackedDbms === 'mariadb' ? 'mysql' :
+                    stackedDbms === 'postgresql' || stackedDbms === 'postgres' ? 'postgresql' :
+                    stackedDbms === 'mssql' || stackedDbms === 'sqlserver' ? 'mssql' :
+                    stackedDbms === 'sqlite' ? 'sqlite' :
+                    stackedDbms === 'oracle' ? 'oracle' : undefined;
+                let sqliExploitData: string | undefined;
+                let deepTechnicalDetail = '';
+                try {
+                    const exploitResult = await deepExploitSqli(
+                        endpoint.url,
+                        firstParam.type === 'query' ? 'GET' : 'POST',
+                        firstParam.name,
+                        firstParam.type,
+                        {
+                            requestTimeout: config.requestTimeout,
+                            userAgent: config.userAgent,
+                            customHeaders: config.customHeaders,
+                            authHeaders: config.authHeaders,
+                            maxDatabases: 10,
+                            maxTablesPerDb: 20,
+                            maxColumnsPerTable: 30,
+                            maxRowsPerTable: 5,
+                            dbmsHint,
+                            originalParamValue: firstParam.value,
+                        },
+                    );
+                    if (exploitResult && (exploitResult.databases.length > 0 || exploitResult.currentDatabase)) {
+                        sqliExploitData = JSON.stringify(exploitResult);
+                        const totalTables = exploitResult.databases.reduce((s, d) => s + d.tables.length, 0);
+                        const totalCols = exploitResult.databases.reduce((s, d) => s + d.tables.reduce((s2, t) => s2 + t.columns.length, 0), 0);
+                        deepTechnicalDetail = `\n\n[DEEP EXPLOITATION RESULTS]\n` +
+                            `• DBMS: ${exploitResult.dbms}\n` +
+                            `• Current DB: ${exploitResult.currentDatabase}\n` +
+                            `• Current User: ${exploitResult.currentUser}\n` +
+                            `• Server: ${exploitResult.hostname}\n` +
+                            `• Technique: ${exploitResult.technique}\n` +
+                            `• Databases found: ${exploitResult.databases.map(d => d.name).join(', ')}\n` +
+                            `• Total tables extracted: ${totalTables}\n` +
+                            `• Total columns extracted: ${totalCols}\n` +
+                            `• Exploit steps: ${exploitResult.exploitLog.length}`;
+                    }
+                } catch (err) {
+                    await logCatch(config, 'detectors.sqli.stacked-exploit', `deepExploitSqli(param=${firstParam.name})`, err);
+                }
+
                 results.push({
                     found: true,
                     title: `Stacked SQL Queries Supported (${stackedResult.dbms}) via "${firstParam.name}"`,
-                    description: `The parameter "${firstParam.name}" at ${endpoint.url} supports stacked SQL queries (multiple statements separated by semicolons). This is extremely dangerous — an attacker can execute arbitrary SQL statements including INSERT, UPDATE, DELETE, DROP TABLE, and even OS commands.`,
+                    description: `The parameter "${firstParam.name}" at ${endpoint.url} supports stacked SQL queries (multiple statements separated by semicolons). This is extremely dangerous — an attacker can execute arbitrary SQL statements including INSERT, UPDATE, DELETE, DROP TABLE, and even OS commands.${sqliExploitData ? ' Full database structure was successfully extracted as proof of exploitation.' : ''}`,
                     category: 'sqli',
                     severity: 'critical',
                     confidence: 'high',
@@ -481,8 +540,9 @@ export async function detectSqli(
                     injectionPoint: 'body',
                     payload: stackedResult.payload,
                     impact: 'Stacked queries allow execution of arbitrary SQL statements — complete database takeover, data destruction, and potential OS command execution.',
-                    technicalDetail: stackedResult.evidence,
+                    technicalDetail: `${stackedResult.evidence}${deepTechnicalDetail}`,
                     remediation: 'Use parameterized queries. Disable multi-statement execution in the database driver configuration.',
+                    sqliExploitData,
                     reproductionSteps: [
                         `Send a request to: ${endpoint.url}`,
                         `Set parameter "${firstParam.name}" to: ${stackedResult.payload}`,
